@@ -1,0 +1,75 @@
+name: Collect GPU Pricing Data
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: "Comma-separated list of sources (empty = all)"
+        required: false
+        default: ""
+      no_auth_only:
+        description: "Only run no-auth collectors"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run collectors
+        env:
+          # Free API keys — add these as repository secrets
+          SHADEFORM_API_KEY: ${{ secrets.SHADEFORM_API_KEY }}
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          VASTAI_API_KEY: ${{ secrets.VASTAI_API_KEY }}
+          LAMBDA_API_KEY: ${{ secrets.LAMBDA_API_KEY }}
+          GCP_API_KEY: ${{ secrets.GCP_API_KEY }}
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+        run: |
+          if [ -n "${{ github.event.inputs.sources }}" ]; then
+            # Convert comma-separated to space-separated
+            SOURCES=$(echo "${{ github.event.inputs.sources }}" | tr ',' ' ')
+            python collect.py $SOURCES
+          elif [ "${{ github.event.inputs.no_auth_only }}" = "true" ]; then
+            python collect.py --no-auth-only
+          else
+            python collect.py
+          fi
+
+      - name: Commit and push data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Add only data files
+          git add data/
+
+          # Check if there are changes
+          if git diff --cached --quiet; then
+            echo "No new data to commit"
+          else
+            DATE=$(date -u +%Y-%m-%d)
+            ROW_COUNT=$(wc -l data/*.csv 2>/dev/null | tail -1 | awk '{print $1}')
+            git commit -m "data: daily collection ${DATE} (${ROW_COUNT} total rows)"
+            git push
+          fi

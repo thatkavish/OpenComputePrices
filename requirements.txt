@@ -1,0 +1,5 @@
+# No external dependencies — all collectors use only the Python standard library.
+# This keeps the project lightweight and avoids supply-chain risk.
+#
+# stdlib modules used: csv, io, json, logging, urllib.request, subprocess,
+#                      concurrent.futures, argparse, os, sys, time, datetime
