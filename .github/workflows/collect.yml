@@ -45,6 +45,7 @@ jobs:
           LAMBDA_API_KEY: ${{ secrets.LAMBDA_API_KEY }}
           GCP_API_KEY: ${{ secrets.GCP_API_KEY }}
           INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+          TENSORDOCK_API_KEY: ${{ secrets.TENSORDOCK_API_KEY }}
         run: |
           if [ -n "${{ github.event.inputs.sources }}" ]; then
             # Convert comma-separated to space-separated

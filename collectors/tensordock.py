@@ -56,7 +56,8 @@ def _parse_gpu_name(v0name: str, display_name: str) -> tuple:
 
 class TensorDockCollector(BaseCollector):
     name = "tensordock"
-    requires_api_key = False
+    requires_api_key = False  # locations works without auth; hostnodes needs key
+    api_key_env_var = "TENSORDOCK_API_KEY"
 
     def collect(self) -> List[Dict[str, Any]]:
         logger.info("[tensordock] Fetching GPU pricing from v2 API")
@@ -143,12 +144,16 @@ class TensorDockCollector(BaseCollector):
         return rows
 
     def _fetch_hostnodes(self) -> List[Dict[str, Any]]:
-        """Fetch from /api/v2/hostnodes — per-node live availability."""
+        """Fetch from /api/v2/hostnodes — per-node live availability. Requires API key."""
+        api_key = self.get_api_key()
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "gpu-pricing-tracker/1.0",
+        }
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         try:
-            req = urllib.request.Request(HOSTNODES_URL, headers={
-                "Accept": "application/json",
-                "User-Agent": "gpu-pricing-tracker/1.0",
-            })
+            req = urllib.request.Request(HOSTNODES_URL, headers=headers)
             with urllib.request.urlopen(req, timeout=60) as resp:
                 data = json.loads(resp.read().decode())
         except Exception as e:
