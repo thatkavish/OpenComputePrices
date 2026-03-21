@@ -62,7 +62,9 @@ class BaseCollector:
 
     def save(self, rows: List[Dict[str, Any]]) -> str:
         """
-        Append rows to the source's CSV file.
+        Write rows to the source's CSV file.
+        If the file already contains rows for today's snapshot_date,
+        those are replaced (dedup on re-run). Historical dates are preserved.
         Returns the file path written.
         """
         if not rows:
@@ -71,16 +73,29 @@ class BaseCollector:
 
         os.makedirs(DATA_DIR, exist_ok=True)
         path = os.path.join(DATA_DIR, f"{self.name}.csv")
-        file_exists = os.path.isfile(path)
 
-        with open(path, "a", newline="", encoding="utf-8") as f:
+        # Read existing rows, dropping any from today's date
+        existing = []
+        if os.path.isfile(path):
+            with open(path, "r", newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get("snapshot_date") != self.snapshot_date:
+                        existing.append(row)
+            if len(existing) < sum(1 for _ in open(path)) - 1:  # header
+                logger.info(f"[{self.name}] Replacing today's rows in existing file")
+
+        # Write: existing historical rows + today's new rows
+        with open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
-            if not file_exists:
-                writer.writeheader()
+            writer.writeheader()
+            for row in existing:
+                writer.writerow(row)
             for row in rows:
                 writer.writerow(row)
 
-        logger.info(f"[{self.name}] Saved {len(rows)} rows to {path}")
+        total = len(existing) + len(rows)
+        logger.info(f"[{self.name}] Saved {len(rows)} new rows ({total} total) to {path}")
         return path
 
     def run(self) -> int:
