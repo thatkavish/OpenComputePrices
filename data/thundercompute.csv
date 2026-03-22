@@ -1,0 +1,5 @@
+snapshot_date,snapshot_ts,source,provider,instance_type,instance_family,gpu_name,gpu_variant,gpu_memory_gb,gpu_count,gpu_interconnect,vcpus,ram_gb,storage_desc,network_desc,region,zone,country,geo_group,pricing_type,commitment_period,price_per_hour,price_per_gpu_hour,currency,price_unit,available,available_count,os,tenancy,pre_installed_sw,raw_extra
+2026-03-22,2026-03-22T23:34:16Z,thundercompute,thundercompute,NVIDIA RTX A6000 On-demand,,RTX A6000,,48,1,,,,,,,,,,on_demand,,0.27,0.27,USD,hour,True,,,,,
+2026-03-22,2026-03-22T23:34:16Z,thundercompute,thundercompute,NVIDIA A100 80GB On-demand,,A100,,80,1,,,,,,,,,,on_demand,,0.78,0.78,USD,hour,True,,,,,
+2026-03-22,2026-03-22T23:34:16Z,thundercompute,thundercompute,NVIDIA H100 80GB (PCIe) On-demand,,H100,PCIe,80,1,,,,,,,,,,on_demand,,1.38,1.38,USD,hour,True,,,,,
+2026-03-22,2026-03-22T23:34:16Z,thundercompute,thundercompute,1-8 x H100 PCIe NVLink,,H100,PCIe,80,1,,,,,,,,,,on_demand,,2.49,2.49,USD,hour,True,,,,,

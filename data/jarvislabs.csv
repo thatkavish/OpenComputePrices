@@ -1,0 +1,13 @@
+snapshot_date,snapshot_ts,source,provider,instance_type,instance_family,gpu_name,gpu_variant,gpu_memory_gb,gpu_count,gpu_interconnect,vcpus,ram_gb,storage_desc,network_desc,region,zone,country,geo_group,pricing_type,commitment_period,price_per_hour,price_per_gpu_hour,currency,price_unit,available,available_count,os,tenancy,pre_installed_sw,raw_extra
+2026-03-22,2026-03-22T23:34:15Z,jarvislabs,jarvislabs,H200 SXM,,H200,SXM,141.0,1,,16,200,,,,,,,on_demand,,3.8,3.8,USD,hour,True,,,,,"{""generation"":""Hopper""}"
+2026-03-22,2026-03-22T23:34:15Z,jarvislabs,jarvislabs,H100 SXM,,H100,SXM,80.0,1,,16,200,,,,,,,on_demand,,2.99,2.99,USD,hour,True,,,,,"{""generation"":""Hopper""}"
+2026-03-22,2026-03-22T23:34:15Z,jarvislabs,jarvislabs,A6000,,RTX A6000,,48.0,1,,7,32,,,,,,,on_demand,,0.79,0.79,USD,hour,True,,,,,"{""generation"":""Ampere""}"
+2026-03-22,2026-03-22T23:34:15Z,jarvislabs,jarvislabs,RTX6000 Ada,,RTX 6000,,48.0,1,,32,128,,,,,,,on_demand,,0.99,0.99,USD,hour,True,,,,,"{""generation"":""Ada""}"
+2026-03-22,2026-03-22T23:34:15Z,jarvislabs,jarvislabs,L4,,L4,,24.0,1,,32,124,,,,,,,on_demand,,0.44,0.44,USD,hour,True,,,,,"{""generation"":""Ada""}"
+2026-03-22,2026-03-22T23:34:15Z,jarvislabs,jarvislabs,A100,,A100,,40.0,1,,16,112,,,,,,,on_demand,,1.29,1.29,USD,hour,True,,,,,"{""generation"":""Ampere""}"
+2026-03-22,2026-03-22T23:34:15Z,jarvislabs,jarvislabs,A100-80GB,,A100,,80.0,1,,16,112,,,,,,,on_demand,,1.49,1.49,USD,hour,True,,,,,"{""generation"":""Ampere""}"
+2026-03-22,2026-03-22T23:34:15Z,jarvislabs,jarvislabs,H200,,H200,,141.0,1,,16,200,,,,,,,on_demand,,3.8,3.8,USD,hour,True,,,,,"{""generation"":""Hopper""}"
+2026-03-22,2026-03-22T23:34:15Z,jarvislabs,jarvislabs,H100,,H100,,80.0,1,,16,200,,,,,,,on_demand,,2.99,2.99,USD,hour,True,,,,,"{""generation"":""Hopper""}"
+2026-03-22,2026-03-22T23:34:15Z,jarvislabs,jarvislabs,A100-80GB,,A100,,80.0,1,,16,112,,,,,,,on_demand,,1.49,1.49,USD,hour,True,,,,,"{""generation"":""Ampere""}"
+2026-03-22,2026-03-22T23:34:15Z,jarvislabs,jarvislabs,A100,,A100,,40.0,1,,16,112,,,,,,,on_demand,,1.29,1.29,USD,hour,True,,,,,"{""generation"":""Ampere""}"
+2026-03-22,2026-03-22T23:34:15Z,jarvislabs,jarvislabs,L4,,L4,,24.0,1,,32,124,,,,,,,on_demand,,0.44,0.44,USD,hour,True,,,,,"{""generation"":""Ada""}"

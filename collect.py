@@ -26,6 +26,19 @@ from collectors.lambda_cloud import LambdaCollector
 from collectors.gcp import GCPCollector
 from collectors.infracost import InfracostCollector
 from collectors.skypilot import SkyPilotCollector
+from collectors.getdeploying import GetDeployingCollector
+from collectors.jarvislabs import JarvisLabsCollector
+from collectors.thundercompute import ThunderComputeCollector
+from collectors.crusoe import CrusoeCollector
+from collectors.novita import NovitaCollector
+from collectors.hyperstack import HyperstackCollector
+from collectors.akash import AkashCollector
+from collectors.salad import SaladCollector
+from collectors.cudo import CudoCollector
+from collectors.vultr import VultrCollector
+from collectors.paperspace import PaperspaceCollector
+from collectors.primeintellect import PrimeIntellectCollector
+from collectors.datacrunch import DataCrunchCollector
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,24 +49,45 @@ logger = logging.getLogger(__name__)
 
 # Registry of all collectors
 COLLECTORS = {
-    # --- No auth required ---
+    # --- No auth required (APIs) ---
     "aws": AWSCollector,
     "azure": AzureCollector,
     "oracle": OracleCollector,
     "openrouter": OpenRouterCollector,
     "tensordock": TensorDockCollector,
-    "infracost": InfracostCollector,
     "skypilot": SkyPilotCollector,
+    # --- No auth required (web scrapers) ---
+    "getdeploying": GetDeployingCollector,
+    "jarvislabs": JarvisLabsCollector,
+    "thundercompute": ThunderComputeCollector,
+    "crusoe": CrusoeCollector,
+    "novita": NovitaCollector,
+    "hyperstack": HyperstackCollector,
+    "akash": AkashCollector,
+    "salad": SaladCollector,
+    "cudo": CudoCollector,
+    "vultr": VultrCollector,
+    "paperspace": PaperspaceCollector,
     # --- Free API key required ---
     "shadeform": ShadeformCollector,
     "runpod": RunPodCollector,
     "vastai": VastAICollector,
     "lambda": LambdaCollector,
     "gcp": GCPCollector,
+    "infracost": InfracostCollector,
+    "primeintellect": PrimeIntellectCollector,
+    "datacrunch": DataCrunchCollector,
 }
 
-NO_AUTH_COLLECTORS = ["aws", "azure", "oracle", "openrouter", "tensordock", "skypilot"]
-API_KEY_COLLECTORS = ["shadeform", "runpod", "vastai", "lambda", "gcp", "infracost"]
+NO_AUTH_COLLECTORS = [
+    "aws", "azure", "oracle", "openrouter", "tensordock", "skypilot",
+    "getdeploying", "jarvislabs", "thundercompute", "crusoe", "novita",
+    "hyperstack", "akash", "salad", "cudo", "vultr", "paperspace",
+]
+API_KEY_COLLECTORS = [
+    "shadeform", "runpod", "vastai", "lambda", "gcp", "infracost",
+    "primeintellect", "datacrunch",
+]
 
 
 def main():

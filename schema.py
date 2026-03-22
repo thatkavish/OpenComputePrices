@@ -85,6 +85,7 @@ GPU_NAME_MAP = {
     "nvidia a10": "A10", "a10": "A10", "a10-24gb": "A10",
     "a10-pcie-24gb": "A10",
     "nvidia a40": "A40", "a40": "A40", "a40-pcie-48gb": "A40",
+    "nvidia a16": "A16", "a16": "A16",
     # NVIDIA data center — L-series
     "nvidia l4": "L4", "l4": "L4", "l4-pcie-24gb": "L4", "l4 pcie": "L4",
     "nvidia l40": "L40", "l40": "L40", "l40-pcie-48gb": "L40",

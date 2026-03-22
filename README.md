@@ -37,27 +37,45 @@ Full schema in [`schema.py`](schema.py).
 
 ## Data Sources
 
-### No Authentication Required
+### No Authentication Required — APIs
 
-| Source                  | Coverage                                 | ~Rows/day      | Notes                                                       |
-| ----------------------- | ---------------------------------------- | -------------- | ----------------------------------------------------------- |
-| **AWS Bulk Price List** | All GPU EC2 instances, 27 regions        | ~7K per region | On-demand pricing for p2–p6, g3–g6, trn, inf (17 GPU types) |
-| **Azure Retail Prices** | All GPU VMs (NC/ND/NV series)            | ~8,500         | On-demand + spot + reserved, all regions                    |
-| **Oracle Cloud**        | GPU instances (H100, A100, MI300X, etc.) | ~33            | Uniform cross-region pricing                                |
-| **OpenRouter**          | 300+ inference models, 60+ providers     | ~320           | Per-token pricing (inference, not GPU-hour)                 |
-| **TensorDock**          | GPU marketplace (locations + hostnodes)  | ~40+           | Per-GPU hourly pricing with live availability               |
-| **SkyPilot Catalog**    | 15 clouds via open-source CSVs           | ~12,000        | AWS, GCP, Azure, Lambda, RunPod, Vast, OCI, Nebius, etc.    |
+| Source                  | Coverage                                 | ~Rows/day | Notes                                                       |
+| ----------------------- | ---------------------------------------- | --------- | ----------------------------------------------------------- |
+| **AWS Bulk Price List** | All GPU EC2 instances, 27 regions        | ~99K      | On-demand pricing for p2–p6, g3–g6, trn, inf (17 GPU types) |
+| **Azure Retail Prices** | All GPU VMs (NC/ND/NV series)            | ~8,500    | On-demand + spot + reserved, all regions                    |
+| **Oracle Cloud**        | GPU instances (H100, A100, MI300X, etc.) | ~33       | Uniform cross-region pricing                                |
+| **OpenRouter**          | 300+ inference models, 60+ providers     | ~320      | Per-token pricing (inference, not GPU-hour)                 |
+| **TensorDock**          | GPU marketplace (locations + hostnodes)  | ~40       | Per-GPU hourly pricing with live availability               |
+| **SkyPilot Catalog**    | 15 clouds via open-source CSVs           | ~12K      | AWS, GCP, Azure, Lambda, RunPod, Vast, OCI, Nebius, etc.    |
+| **Akash Network**       | 18 GPU models, decentralized marketplace | ~55       | Min/max/avg/weighted pricing + availability                 |
+| **CUDO Compute**        | GPU machine types across data centers    | ~9        | Per-GPU hourly pricing per datacenter                       |
+| **Vultr**               | GPU cloud plans (A16, A40, A100, L40S)   | ~58       | On-demand + preemptible via public API                      |
+
+### No Authentication Required — Web Scrapers
+
+| Source              | Coverage                             | ~Rows/day   | Notes                                              |
+| ------------------- | ------------------------------------ | ----------- | -------------------------------------------------- |
+| **GetDeploying**    | 55+ providers, 18 GPU models         | ~400        | Best free aggregator; per-provider pricing per GPU |
+| **JarvisLabs**      | H200, H100, A100, RTX, L4            | ~12         | Clean HTML tables with specs                       |
+| **Thunder Compute** | A6000, A100, H100                    | ~4          | JSON-LD structured data                            |
+| **Crusoe Cloud**    | B200, H200, H100, A100, L40S, MI300X | ~8          | GPU-hr pricing from HTML                           |
+| **Novita AI**       | 80+ inference models                 | ~81         | Per-token pricing tables                           |
+| **Hyperstack**      | H100, H200, A100, L40                | best-effort | JS-rendered; extracts what’s in static HTML        |
+| **Salad**           | Consumer + datacenter GPUs           | best-effort | JS-rendered                                        |
+| **Paperspace**      | H100, A100, RTX, A6000               | best-effort | JS-rendered                                        |
 
 ### Free API Key Required
 
-| Source                  | Coverage                              | Env Var             |
-| ----------------------- | ------------------------------------- | ------------------- |
-| **Shadeform**           | 21+ providers via single API          | `SHADEFORM_API_KEY` |
-| **RunPod**              | 30+ GPU types, spot + committed + bid | `RUNPOD_API_KEY`    |
-| **Vast.ai**             | 17K+ GPUs, on-demand + interruptible  | `VASTAI_API_KEY`    |
-| **Lambda Cloud**        | H100, H200, A100, B200                | `LAMBDA_API_KEY`    |
-| **GCP Billing Catalog** | All GPU SKUs, all regions             | `GCP_API_KEY`       |
-| **Infracost**           | AWS + Azure + GCP deep coverage       | `INFRACOST_API_KEY` |
+| Source                  | Coverage                                     | Env Var                  |
+| ----------------------- | -------------------------------------------- | ------------------------ |
+| **Shadeform**           | 21+ providers via single API                 | `SHADEFORM_API_KEY`      |
+| **RunPod**              | 30+ GPU types, spot + committed + bid        | `RUNPOD_API_KEY`         |
+| **Vast.ai**             | 17K+ GPUs, on-demand + interruptible         | `VASTAI_API_KEY`         |
+| **Lambda Cloud**        | H100, H200, A100, B200                       | `LAMBDA_API_KEY`         |
+| **GCP Billing Catalog** | All GPU SKUs, all regions                    | `GCP_API_KEY`            |
+| **Infracost**           | AWS + Azure + GCP deep coverage              | `INFRACOST_API_KEY`      |
+| **Prime Intellect**     | GPU availability and pricing                 | `PRIMEINTELLECT_API_KEY` |
+| **DataCrunch / Verda**  | Dynamic pricing (changes multiple times/day) | `DATACRUNCH_API_KEY`     |
 
 ## Quick Start
 
@@ -101,6 +119,9 @@ The workflow at `.github/workflows/collect.yml` runs daily at 06:00 UTC and:
    - `LAMBDA_API_KEY` — [Get free key](https://lambdalabs.com)
    - `GCP_API_KEY` — [Get free key](https://console.cloud.google.com/apis/credentials)
    - `INFRACOST_API_KEY` — [Get free key](https://www.infracost.io/docs/integrations/infracost_api/)
+   - `PRIMEINTELLECT_API_KEY` — [Get free key](https://docs.primeintellect.ai)
+   - `DATACRUNCH_API_KEY` — [Get free key](https://datacrunch.io)
+   - `TENSORDOCK_API_KEY` — [Get free key](https://dashboard.tensordock.com/developers) (optional)
 3. Enable GitHub Actions in your fork
 4. Optionally trigger manually via Actions → "Collect GPU Pricing Data" → "Run workflow"
 
@@ -108,22 +129,39 @@ The workflow at `.github/workflows/collect.yml` runs daily at 06:00 UTC and:
 
 ```
 gpu-pricing-tracker/
-├── collect.py              # Main entry point
+├── collect.py              # Main entry point (25 collectors registered)
 ├── schema.py               # Standardized schema & GPU name normalization
+├── summary.py              # Quick dataset inspection tool
 ├── collectors/
-│   ├── base.py             # Base collector class
-│   ├── aws.py              # AWS Bulk Price List (no auth)
-│   ├── azure.py            # Azure Retail Prices (no auth)
-│   ├── oracle.py           # OCI pricing (no auth)
-│   ├── openrouter.py       # OpenRouter models (no auth)
-│   ├── tensordock.py       # TensorDock marketplace (no auth)
-│   ├── skypilot.py         # SkyPilot Catalog CSVs (no auth)
-│   ├── shadeform.py        # Shadeform aggregator (free key)
-│   ├── runpod.py           # RunPod GraphQL (free key)
-│   ├── vastai.py           # Vast.ai marketplace (free key)
-│   ├── lambda_cloud.py     # Lambda Cloud (free key)
-│   ├── gcp.py              # GCP Billing Catalog (free key)
-│   └── infracost.py        # Infracost GraphQL (free key)
+│   ├── base.py             # Base collector class (with dedup logic)
+│   ├── # --- APIs (no auth) ---
+│   ├── aws.py              # AWS Bulk Price List
+│   ├── azure.py            # Azure Retail Prices
+│   ├── oracle.py           # OCI pricing
+│   ├── openrouter.py       # OpenRouter inference models
+│   ├── tensordock.py       # TensorDock v2 marketplace
+│   ├── skypilot.py         # SkyPilot Catalog (15 clouds)
+│   ├── akash.py            # Akash Network GPU marketplace
+│   ├── cudo.py             # CUDO Compute REST API
+│   ├── vultr.py            # Vultr public plans API
+│   ├── # --- Web scrapers (no auth) ---
+│   ├── getdeploying.py     # GetDeploying aggregator (55+ providers)
+│   ├── jarvislabs.py       # JarvisLabs pricing tables
+│   ├── thundercompute.py   # Thunder Compute JSON-LD
+│   ├── crusoe.py           # Crusoe Cloud pricing
+│   ├── novita.py           # Novita AI inference pricing
+│   ├── hyperstack.py       # Hyperstack (best-effort)
+│   ├── salad.py            # Salad (best-effort)
+│   ├── paperspace.py       # Paperspace/DigitalOcean (best-effort)
+│   ├── # --- APIs (free key required) ---
+│   ├── shadeform.py        # Shadeform aggregator
+│   ├── runpod.py           # RunPod GraphQL
+│   ├── vastai.py           # Vast.ai marketplace
+│   ├── lambda_cloud.py     # Lambda Cloud
+│   ├── gcp.py              # GCP Billing Catalog
+│   ├── infracost.py        # Infracost GraphQL
+│   ├── primeintellect.py   # Prime Intellect
+│   └── datacrunch.py       # DataCrunch / Verda
 ├── data/                   # Collected pricing CSVs (one per source)
 ├── .github/workflows/
 │   └── collect.yml         # Daily GitHub Actions workflow
