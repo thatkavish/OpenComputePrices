@@ -1,0 +1,7 @@
+snapshot_date,snapshot_ts,source,provider,instance_type,instance_family,gpu_name,gpu_variant,gpu_memory_gb,gpu_count,gpu_interconnect,vcpus,ram_gb,storage_desc,network_desc,region,zone,country,geo_group,pricing_type,commitment_period,price_per_hour,price_per_gpu_hour,currency,price_unit,available,available_count,os,tenancy,pre_installed_sw,raw_extra
+2026-03-22,2026-03-22T23:57:11Z,denvr,denvr,h200,,H200,,,1,,,,,,,,,,on_demand,,3.87,3.87,USD,hour,True,,,,,
+2026-03-22,2026-03-22T23:57:11Z,denvr,denvr,h100,,H100,,,1,,,,,,,,,,on_demand,,2.1,2.1,USD,hour,True,,,,,
+2026-03-22,2026-03-22T23:57:11Z,denvr,denvr,a100,,A100,,,1,,,,,,,,,,on_demand,,1.3,1.3,USD,hour,True,,,,,
+2026-03-22,2026-03-22T23:57:11Z,denvr,denvr,a100,,A100,,,1,,,,,,,,,,on_demand,,1.15,1.15,USD,hour,True,,,,,
+2026-03-22,2026-03-22T23:57:11Z,denvr,denvr,a100,,A100,,,1,,,,,,,,,,on_demand,,0.58,0.58,USD,hour,True,,,,,
+2026-03-22,2026-03-22T23:57:11Z,denvr,denvr,gaudi2,,gaudi2,,,1,,,,,,,,,,on_demand,,1.25,1.25,USD,hour,True,,,,,

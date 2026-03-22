@@ -39,6 +39,15 @@ from collectors.vultr import VultrCollector
 from collectors.paperspace import PaperspaceCollector
 from collectors.primeintellect import PrimeIntellectCollector
 from collectors.datacrunch import DataCrunchCollector
+from collectors.deepinfra import DeepInfraCollector
+from collectors.linode import LinodeCollector
+from collectors.latitude import LatitudeCollector
+from collectors.massedcompute import MassedComputeCollector
+from collectors.e2e import E2ECollector
+from collectors.coreweave import CoreWeaveCollector
+from collectors.together import TogetherCollector
+from collectors.voltagepark import VoltageParkCollector
+from collectors.denvr import DenvrCollector
 
 logging.basicConfig(
     level=logging.INFO,
@@ -68,6 +77,15 @@ COLLECTORS = {
     "cudo": CudoCollector,
     "vultr": VultrCollector,
     "paperspace": PaperspaceCollector,
+    "deepinfra": DeepInfraCollector,
+    "linode": LinodeCollector,
+    "latitude": LatitudeCollector,
+    "massedcompute": MassedComputeCollector,
+    "e2e": E2ECollector,
+    "coreweave": CoreWeaveCollector,
+    "together": TogetherCollector,
+    "voltagepark": VoltageParkCollector,
+    "denvr": DenvrCollector,
     # --- Free API key required ---
     "shadeform": ShadeformCollector,
     "runpod": RunPodCollector,
@@ -83,6 +101,8 @@ NO_AUTH_COLLECTORS = [
     "aws", "azure", "oracle", "openrouter", "tensordock", "skypilot",
     "getdeploying", "jarvislabs", "thundercompute", "crusoe", "novita",
     "hyperstack", "akash", "salad", "cudo", "vultr", "paperspace",
+    "deepinfra", "linode", "latitude", "massedcompute", "e2e",
+    "coreweave", "together", "voltagepark", "denvr",
 ]
 API_KEY_COLLECTORS = [
     "shadeform", "runpod", "vastai", "lambda", "gcp", "infracost",
