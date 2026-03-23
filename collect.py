@@ -44,10 +44,23 @@ from collectors.linode import LinodeCollector
 from collectors.latitude import LatitudeCollector
 from collectors.massedcompute import MassedComputeCollector
 from collectors.e2e import E2ECollector
-from collectors.coreweave import CoreWeaveCollector
-from collectors.together import TogetherCollector
 from collectors.voltagepark import VoltageParkCollector
 from collectors.denvr import DenvrCollector
+from collectors.browser_providers import (
+    CoreWeaveBrowserCollector,
+    TogetherBrowserCollector,
+    HyperstackBrowserCollector,
+    GcoreBrowserCollector,
+    FirmusBrowserCollector,
+    NeysaBrowserCollector,
+    GMICloudBrowserCollector,
+    LightningAIBrowserCollector,
+    SaladBrowserCollector,
+    CloreAIBrowserCollector,
+    ExabitsBrowserCollector,
+    AethirBrowserCollector,
+    QubridBrowserCollector,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -71,9 +84,7 @@ COLLECTORS = {
     "thundercompute": ThunderComputeCollector,
     "crusoe": CrusoeCollector,
     "novita": NovitaCollector,
-    "hyperstack": HyperstackCollector,
     "akash": AkashCollector,
-    "salad": SaladCollector,
     "cudo": CudoCollector,
     "vultr": VultrCollector,
     "paperspace": PaperspaceCollector,
@@ -82,10 +93,22 @@ COLLECTORS = {
     "latitude": LatitudeCollector,
     "massedcompute": MassedComputeCollector,
     "e2e": E2ECollector,
-    "coreweave": CoreWeaveCollector,
-    "together": TogetherCollector,
     "voltagepark": VoltageParkCollector,
     "denvr": DenvrCollector,
+    # --- No auth required (Playwright browser scrapers) ---
+    "coreweave": CoreWeaveBrowserCollector,
+    "together": TogetherBrowserCollector,
+    "hyperstack": HyperstackBrowserCollector,
+    "gcore": GcoreBrowserCollector,
+    "firmus": FirmusBrowserCollector,
+    "neysa": NeysaBrowserCollector,
+    "gmicloud": GMICloudBrowserCollector,
+    "lightningai": LightningAIBrowserCollector,
+    "salad": SaladBrowserCollector,
+    "cloreai": CloreAIBrowserCollector,
+    "exabits": ExabitsBrowserCollector,
+    "aethir": AethirBrowserCollector,
+    "qubrid": QubridBrowserCollector,
     # --- Free API key required ---
     "shadeform": ShadeformCollector,
     "runpod": RunPodCollector,
@@ -100,9 +123,14 @@ COLLECTORS = {
 NO_AUTH_COLLECTORS = [
     "aws", "azure", "oracle", "openrouter", "tensordock", "skypilot",
     "getdeploying", "jarvislabs", "thundercompute", "crusoe", "novita",
-    "hyperstack", "akash", "salad", "cudo", "vultr", "paperspace",
+    "akash", "cudo", "vultr", "paperspace",
     "deepinfra", "linode", "latitude", "massedcompute", "e2e",
-    "coreweave", "together", "voltagepark", "denvr",
+    "voltagepark", "denvr",
+]
+BROWSER_COLLECTORS = [
+    "coreweave", "together", "hyperstack", "gcore", "firmus",
+    "neysa", "gmicloud", "lightningai", "salad",
+    "cloreai", "exabits", "aethir", "qubrid",
 ]
 API_KEY_COLLECTORS = [
     "shadeform", "runpod", "vastai", "lambda", "gcp", "infracost",
@@ -115,23 +143,27 @@ def main():
     parser.add_argument("sources", nargs="*", help="Specific sources to collect (default: all)")
     parser.add_argument("--list", action="store_true", help="List available collectors")
     parser.add_argument("--no-auth-only", action="store_true", help="Only run collectors that need no API key")
+    parser.add_argument("--browser", action="store_true", help="Only run Playwright browser-based collectors")
     parser.add_argument("--skip", nargs="*", default=[], help="Collectors to skip")
     args = parser.parse_args()
 
     if args.list:
         print("\nAvailable collectors:")
-        print(f"{'Name':<15} {'Auth Required':<15} {'Env Var'}")
-        print("-" * 55)
+        print(f"{'Name':<17} {'Type':<12} {'Auth':<10} {'Env Var'}")
+        print("-" * 65)
         for name, cls in COLLECTORS.items():
             c = cls()
             auth = "API key" if c.requires_api_key else "None"
             env = c.api_key_env_var or "-"
-            print(f"{name:<15} {auth:<15} {env}")
+            ctype = "browser" if name in BROWSER_COLLECTORS else "scraper" if name in NO_AUTH_COLLECTORS else "api-key"
+            print(f"{name:<17} {ctype:<12} {auth:<10} {env}")
         return
 
     # Determine which collectors to run
     if args.sources:
         names = args.sources
+    elif args.browser:
+        names = BROWSER_COLLECTORS
     elif args.no_auth_only:
         names = NO_AUTH_COLLECTORS
     else:

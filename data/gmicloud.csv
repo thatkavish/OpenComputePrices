@@ -1,0 +1,6 @@
+snapshot_date,snapshot_ts,source,provider,instance_type,instance_family,gpu_name,gpu_variant,gpu_memory_gb,gpu_count,gpu_interconnect,vcpus,ram_gb,storage_desc,network_desc,region,zone,country,geo_group,pricing_type,commitment_period,price_per_hour,price_per_gpu_hour,currency,price_unit,available,available_count,os,tenancy,pre_installed_sw,raw_extra
+2026-03-23,2026-03-23T00:29:05Z,gmicloud,gmicloud,NVIDIA H100,,H100,,,1,,,,,,,,,,on_demand,,2.0,2.0,USD,hour,True,,,,,
+2026-03-23,2026-03-23T00:29:05Z,gmicloud,gmicloud,L4,,L4,,,1,,,,,,,,,,on_demand,,2.6,2.6,USD,hour,True,,,,,
+2026-03-23,2026-03-23T00:29:05Z,gmicloud,gmicloud,L4,,L4,,,1,,,,,,,,,,on_demand,,1.0,1.0,USD,hour,True,,,,,
+2026-03-23,2026-03-23T00:29:05Z,gmicloud,gmicloud,H200,,H200,,,1,,,,,,,,,,on_demand,,2.6,2.6,USD,hour,True,,,,,
+2026-03-23,2026-03-23T00:29:05Z,gmicloud,gmicloud,H200,,H200,,,1,,,,,,,,,,on_demand,,2.0,2.0,USD,hour,True,,,,,

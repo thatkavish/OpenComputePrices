@@ -1,0 +1,5 @@
+snapshot_date,snapshot_ts,source,provider,instance_type,instance_family,gpu_name,gpu_variant,gpu_memory_gb,gpu_count,gpu_interconnect,vcpus,ram_gb,storage_desc,network_desc,region,zone,country,geo_group,pricing_type,commitment_period,price_per_hour,price_per_gpu_hour,currency,price_unit,available,available_count,os,tenancy,pre_installed_sw,raw_extra
+2026-03-23,2026-03-23T00:33:06Z,coreweave,coreweave,GB200 NVL72,,GB200,NVL,192,1,,,,,,,,,,on_demand,,42.0,42.0,USD,hour,True,,,,,
+2026-03-23,2026-03-23T00:33:06Z,coreweave,coreweave,L40,,L40,,0,1,,,,,,,,,,on_demand,,10.0,10.0,USD,hour,True,,,,,
+2026-03-23,2026-03-23T00:33:06Z,coreweave,coreweave,L40S,,L40S,,48,1,,,,,,,,,,on_demand,,18.0,18.0,USD,hour,True,,,,,
+2026-03-23,2026-03-23T00:33:06Z,coreweave,coreweave,A100,,A100,SXM4,80,1,,,,,,,,,,on_demand,,21.6,21.6,USD,hour,True,,,,,
