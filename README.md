@@ -1,6 +1,6 @@
-# GPU Cloud Pricing Tracker
+# OpenComputePrices
 
-**Open-source historical GPU cloud pricing dataset**, automatically updated daily via GitHub Actions.
+**Open-source historical GPU and inference cloud pricing dataset**, automatically updated daily via GitHub Actions.
 
 Collects pricing data from **40+ GPU cloud providers** across hyperscalers, neoclouds, marketplaces, aggregators, and inference platforms — storing every dimension that affects price at maximum granularity.
 
