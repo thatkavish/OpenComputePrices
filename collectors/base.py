@@ -76,13 +76,15 @@ class BaseCollector:
 
         # Read existing rows, dropping any from today's date
         existing = []
+        total_existing = 0
         if os.path.isfile(path):
             with open(path, "r", newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
+                    total_existing += 1
                     if row.get("snapshot_date") != self.snapshot_date:
                         existing.append(row)
-            if len(existing) < sum(1 for _ in open(path)) - 1:  # header
+            if len(existing) < total_existing:
                 logger.info(f"[{self.name}] Replacing today's rows in existing file")
 
         # Write: existing historical rows + today's new rows

@@ -147,18 +147,6 @@ def _is_empty(val) -> bool:
     return s == "" or s.lower() in ("", "none", "nan", "null")
 
 
-def _merge_rows(winner: Dict, loser: Dict) -> Dict:
-    """
-    Merge two rows: winner's priority fields are kept,
-    loser's backfill fields fill in gaps.
-    """
-    merged = dict(winner)
-    for field in BACKFILL_FIELDS:
-        if _is_empty(merged.get(field)) and not _is_empty(loser.get(field)):
-            merged[field] = loser[field]
-    return merged
-
-
 def load_all_sources(date_filter: str = "") -> List[Dict]:
     """Load all rows from all source CSVs in data/."""
     all_rows = []
@@ -361,13 +349,13 @@ def main():
 
     # Unify GPU cloud rows (with deduplication logic)
     logger.info("Running unification for GPU cloud data...")
-    unified_gpu = unify(gpu_rows, stats=args.stats or True)
+    unified_gpu = unify(gpu_rows, stats=args.stats)
     save_master(unified_gpu, path=args.output)
 
     # For inference data, we also unify but with a simpler approach
     # (no GPU-level dedup since inference has no GPU data)
     logger.info("Running unification for inference data...")
-    unified_inference = unify(inference_rows, stats=args.stats or False)
+    unified_inference = unify(inference_rows, stats=args.stats)
     save_inference(unified_inference, path=args.inference_output)
 
     # Quick summary for GPU database

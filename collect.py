@@ -249,7 +249,7 @@ def main():
             logger.error(f"Unification failed: {e}", exc_info=True)
 
     # Exit with error if all failed
-    if all(r["status"] == "error" for r in results.values()):
+    if results and all(r["status"] == "error" for r in results.values()):
         sys.exit(1)
 
 

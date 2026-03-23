@@ -1,8 +1,8 @@
-# Core collectors use only the Python standard library (no deps needed).
+# Core collectors use only the Python standard library (no external deps).
 # Playwright is required only for browser-based scrapers (--browser flag).
 #
-# stdlib modules used: csv, io, json, logging, urllib.request, subprocess,
-#                      concurrent.futures, argparse, os, sys, time, datetime
+# stdlib modules used: csv, json, logging, urllib.request,
+#                      argparse, os, sys, time, datetime, re
 
-# Optional: uncomment to enable Playwright browser-based scrapers
+# Required for browser-based scrapers (optional if only running API collectors)
 playwright>=1.40.0
