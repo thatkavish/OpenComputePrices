@@ -55,7 +55,7 @@ jobs:
           else
             # Run all non-browser collectors (API + static scrapers + API-key)
             python collect.py --no-auth-only
-            python collect.py shadeform runpod vastai lambda gcp infracost primeintellect datacrunch
+            python collect.py shadeform runpod vastai lambda gcp infracost tensordock primeintellect datacrunch
           fi
 
       - name: Commit and push data
