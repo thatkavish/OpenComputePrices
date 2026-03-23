@@ -35,6 +35,39 @@ Every row in the dataset contains:
 
 Full schema in [`schema.py`](schema.py).
 
+## Databases
+
+This project maintains two separate unified databases:
+
+### `_master.csv` — GPU Cloud Pricing
+
+Contains 115K+ rows of GPU compute pricing (per-hour, per-GPU-hour) from cloud providers, neoclouds, and marketplaces.
+
+| Metric              | Value                                                |
+| ------------------- | ---------------------------------------------------- |
+| GPU Types           | 271 (H100, A100, L40S, L4, T4, V100, etc.)           |
+| Providers           | 65+ (AWS, Azure, GCP, RunPod, Lambda, Vast.ai, etc.) |
+| Pricing Types       | on_demand, spot, preemptible, reserved, committed    |
+| Geographic Coverage | Global (US, EU, APAC, LATAM, Africa)                 |
+
+### `_inference.csv` — Model Inference Pricing
+
+Contains 600+ rows of LLM inference pricing (per-token) from inference providers and APIs.
+
+| Metric           | Value                                                    |
+| ---------------- | -------------------------------------------------------- |
+| Models           | 600+ (Llama, GPT, Claude, Mistral, Qwen, DeepSeek, etc.) |
+| Providers        | 4+ (OpenRouter, DeepInfra, Novita, Together)             |
+| Pricing Unit     | Per-token (input/output)                                 |
+| Model Categories | Chat, embeddings, vision, code generation                |
+
+### Database Separation
+
+The databases are automatically separated during the unification process:
+
+- Rows with `pricing_type=inference` → `_inference.csv`
+- All other pricing types → `_master.csv`
+
 ## Data Sources
 
 ### No Authentication Required — APIs
@@ -103,7 +136,7 @@ No external dependencies — uses only the Python standard library.
 
 ## GitHub Actions
 
-The workflow at `.github/workflows/collect.yml` runs daily at 06:00 UTC and:
+The workflow at `.github/workflows/collect.yml` runs every 6 hours at 00:00, 06:00, 12:00, and 18:00 UTC and:
 
 1. Runs all collectors (skips API-key ones if secrets not configured)
 2. Appends new rows to `data/{source}.csv`
