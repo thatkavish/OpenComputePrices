@@ -145,6 +145,7 @@ def main():
     parser.add_argument("--no-auth-only", action="store_true", help="Only run collectors that need no API key")
     parser.add_argument("--browser", action="store_true", help="Only run Playwright browser-based collectors")
     parser.add_argument("--skip", nargs="*", default=[], help="Collectors to skip")
+    parser.add_argument("--no-unify", action="store_true", help="Skip building the unified master database")
     args = parser.parse_args()
 
     if args.list:
@@ -225,6 +226,17 @@ def main():
     print(f"  {'-'*60}")
     print(f"  {'TOTAL':<15} {'':10} {total_rows:>8}  {total_elapsed:.1f}s")
     print(f"{'='*70}\n")
+
+    # Build unified master database unless --no-unify
+    if not args.no_unify and total_rows > 0:
+        logger.info("Building unified master database...")
+        try:
+            from unify import load_all_sources, unify, save_master
+            all_data = load_all_sources()
+            unified = unify(all_data, stats=True)
+            save_master(unified)
+        except Exception as e:
+            logger.error(f"Unification failed: {e}", exc_info=True)
 
     # Exit with error if all failed
     if all(r["status"] == "error" for r in results.values()):
