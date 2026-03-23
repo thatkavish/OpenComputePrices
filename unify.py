@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 MASTER_PATH = os.path.join(DATA_DIR, "_master.csv")
+INFERENCE_PATH = os.path.join(DATA_DIR, "_inference.csv")
 
 # ---------------------------------------------------------------------------
 # Source priority tiers (lower number = higher priority = more authoritative)
@@ -313,34 +314,85 @@ def save_master(rows: List[Dict], path: str = MASTER_PATH):
     logger.info(f"Master database: {len(rows):,} rows → {path}")
 
 
+def save_inference(rows: List[Dict], path: str = INFERENCE_PATH):
+    """Save inference pricing rows to a separate CSV."""
+    if not rows:
+        logger.info("No rows to save to inference database")
+        return
+
+    # Sort by date, provider, instance_type (model name)
+    rows.sort(key=lambda r: (
+        r.get("snapshot_date", ""),
+        r.get("provider", ""),
+        r.get("instance_type", ""),
+    ))
+
+    # Clean up internal fields
+    for row in rows:
+        row.pop("_source_file", None)
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+    logger.info(f"Inference database: {len(rows):,} rows → {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build unified master pricing database")
     parser.add_argument("--date", default="", help="Filter to a specific snapshot date (YYYY-MM-DD)")
     parser.add_argument("--stats", action="store_true", help="Show detailed dedup statistics")
     parser.add_argument("--output", default=MASTER_PATH, help="Output path (default: data/_master.csv)")
+    parser.add_argument("--inference-output", default=INFERENCE_PATH, help="Inference output path (default: data/_inference.csv)")
     args = parser.parse_args()
 
     logger.info("Loading all source CSVs...")
     rows = load_all_sources(date_filter=args.date)
     logger.info(f"Loaded {len(rows):,} rows from {len(set(r.get('_source_file','') for r in rows))} sources")
 
-    logger.info("Running unification...")
-    unified = unify(rows, stats=args.stats or True)
+    # Separate inference rows from GPU cloud rows
+    inference_rows = [r for r in rows if r.get("pricing_type", "").lower() == "inference"]
+    gpu_rows = [r for r in rows if r.get("pricing_type", "").lower() != "inference"]
 
-    save_master(unified, path=args.output)
+    logger.info(f"Separated: {len(gpu_rows):,} GPU cloud rows, {len(inference_rows):,} inference rows")
 
-    # Quick summary
-    providers = sorted(set(r.get("provider", "") for r in unified))
-    gpu_names = sorted(set(r.get("gpu_name", "") for r in unified if r.get("gpu_name")))
-    dates = sorted(set(r.get("snapshot_date", "") for r in unified))
+    # Unify GPU cloud rows (with deduplication logic)
+    logger.info("Running unification for GPU cloud data...")
+    unified_gpu = unify(gpu_rows, stats=args.stats or True)
+    save_master(unified_gpu, path=args.output)
 
-    print(f"\n  Master Database Summary:")
+    # For inference data, we also unify but with a simpler approach
+    # (no GPU-level dedup since inference has no GPU data)
+    logger.info("Running unification for inference data...")
+    unified_inference = unify(inference_rows, stats=args.stats or False)
+    save_inference(unified_inference, path=args.inference_output)
+
+    # Quick summary for GPU database
+    providers = sorted(set(r.get("provider", "") for r in unified_gpu))
+    gpu_names = sorted(set(r.get("gpu_name", "") for r in unified_gpu if r.get("gpu_name")))
+    dates = sorted(set(r.get("snapshot_date", "") for r in unified_gpu))
+
+    print(f"\n  Master Database Summary (GPU Cloud):")
     print(f"  {'─'*50}")
-    print(f"  Total rows:      {len(unified):>8,}")
+    print(f"  Total rows:      {len(unified_gpu):>8,}")
     print(f"  Providers:       {len(providers):>8,}")
     print(f"  GPU types:       {len(gpu_names):>8,}")
     print(f"  Date range:      {dates[0] if dates else 'none'} → {dates[-1] if dates else 'none'}")
     print(f"  Output:          {args.output}")
+
+    # Quick summary for inference database
+    inf_providers = sorted(set(r.get("provider", "") for r in unified_inference))
+    inf_dates = sorted(set(r.get("snapshot_date", "") for r in unified_inference))
+
+    print(f"\n  Inference Database Summary:")
+    print(f"  {'─'*50}")
+    print(f"  Total rows:      {len(unified_inference):>8,}")
+    print(f"  Providers:       {len(inf_providers):>8,}")
+    print(f"  Date range:      {inf_dates[0] if inf_dates else 'none'} → {inf_dates[-1] if inf_dates else 'none'}")
+    print(f"  Output:          {args.inference_output}")
     print()
 
 

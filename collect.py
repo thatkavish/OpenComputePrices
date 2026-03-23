@@ -231,10 +231,20 @@ def main():
     if not args.no_unify and total_rows > 0:
         logger.info("Building unified master database...")
         try:
-            from unify import load_all_sources, unify, save_master
+            from unify import load_all_sources, unify, save_master, save_inference, MASTER_PATH, INFERENCE_PATH
             all_data = load_all_sources()
-            unified = unify(all_data, stats=True)
-            save_master(unified)
+            # Separate inference rows from GPU cloud rows
+            inference_rows = [r for r in all_data if r.get("pricing_type", "").lower() == "inference"]
+            gpu_rows = [r for r in all_data if r.get("pricing_type", "").lower() != "inference"]
+            logger.info(f"Separated: {len(gpu_rows):,} GPU cloud rows, {len(inference_rows):,} inference rows")
+            # Unify and save GPU cloud data
+            unified_gpu = unify(gpu_rows, stats=False)
+            save_master(unified_gpu)
+            # Unify and save inference data
+            if inference_rows:
+                unified_inference = unify(inference_rows, stats=False)
+                save_inference(unified_inference)
+                logger.info(f"Inference database: {len(unified_inference):,} rows → {INFERENCE_PATH}")
         except Exception as e:
             logger.error(f"Unification failed: {e}", exc_info=True)
 
