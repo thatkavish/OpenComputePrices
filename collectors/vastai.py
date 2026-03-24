@@ -68,7 +68,7 @@ class VastAICollector(BaseCollector):
                 continue
 
             offers = data.get("offers", [])
-            pricing_type = "on_demand" if offer_type == "on-demand" else "interruptible"
+            pricing_type = "on_demand" if offer_type == "on-demand" else "spot"
 
             for offer in offers:
                 row = self._parse_offer(offer, pricing_type)

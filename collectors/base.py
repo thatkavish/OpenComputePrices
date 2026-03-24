@@ -9,7 +9,7 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
-from schema import COLUMNS
+from schema import COLUMNS, normalize_pricing_type, normalize_gpu_variant
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,9 @@ class BaseCollector:
         row["currency"] = "USD"
         row["price_unit"] = "hour"
         row.update(kwargs)
+        # Normalize terminology across providers
+        row["pricing_type"] = normalize_pricing_type(row["pricing_type"])
+        row["gpu_variant"] = normalize_gpu_variant(row["gpu_variant"])
         return row
 
     def save(self, rows: List[Dict[str, Any]]) -> str:

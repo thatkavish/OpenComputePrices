@@ -8,41 +8,54 @@ Collects pricing data from **42 collectors across 65+ GPU cloud providers** — 
 
 Every row in the dataset contains 31 columns:
 
-| Column               | Description                                                                 |
-| -------------------- | --------------------------------------------------------------------------- |
-| `snapshot_date`      | Date of collection (YYYY-MM-DD)                                             |
-| `snapshot_ts`        | Full ISO timestamp                                                          |
-| `source`             | Collector that produced this row                                            |
-| `provider`           | Cloud provider (aws, azure, gcp, lambda, etc.)                              |
-| `instance_type`      | Provider-specific instance/offer ID                                         |
-| `instance_family`    | Instance family (e.g. "p5", "NC_A100_v4")                                   |
-| `gpu_name`           | Canonical GPU name (H100, A100, RTX 4090, etc.)                             |
-| `gpu_variant`        | SXM, PCIe, NVL, HGX — empty if unknown                                      |
-| `gpu_memory_gb`      | Per-GPU memory in GB                                                        |
-| `gpu_count`          | Number of GPUs in this offering                                             |
-| `gpu_interconnect`   | NVLink, NVSwitch, PCIe, etc.                                                |
-| `vcpus`              | vCPU count                                                                  |
-| `ram_gb`             | System RAM in GB                                                            |
-| `storage_desc`       | Storage description (e.g. "2x1900 NVMe SSD")                                |
-| `network_desc`       | Network description (e.g. "100 Gbps")                                       |
-| `region`             | Provider-specific region code                                               |
-| `zone`               | Availability zone                                                           |
-| `country`            | ISO country code if derivable                                               |
-| `geo_group`          | Geographic grouping (US, EU, APAC, LATAM, AFRICA)                           |
-| `pricing_type`       | on_demand, spot, preemptible, reserved, committed, interruptible, inference |
-| `commitment_period`  | 1yr, 3yr, 1wk, etc.                                                         |
-| `price_per_hour`     | Instance-level hourly price (USD)                                           |
-| `price_per_gpu_hour` | Per-GPU hourly price (USD)                                                  |
-| `currency`           | ISO currency code (usually "USD")                                           |
-| `price_unit`         | What the raw price was in: "hour", "token", etc.                            |
-| `available`          | Whether this offering is currently available                                |
-| `available_count`    | Number of available instances/GPUs if known                                 |
-| `os`                 | Operating system (e.g. "Linux", "Windows")                                  |
-| `tenancy`            | Shared, Dedicated, or Host                                                  |
-| `pre_installed_sw`   | Pre-installed software (e.g. "NA", "SQL Std")                               |
-| `raw_extra`          | JSON with additional provider-specific fields                               |
+| Column               | Description                                                   |
+| -------------------- | ------------------------------------------------------------- |
+| `snapshot_date`      | Date of collection (YYYY-MM-DD)                               |
+| `snapshot_ts`        | Full ISO timestamp                                            |
+| `source`             | Collector that produced this row                              |
+| `provider`           | Cloud provider (aws, azure, gcp, lambda, etc.)                |
+| `instance_type`      | Provider-specific instance/offer ID                           |
+| `instance_family`    | Instance family (e.g. "p5", "NC_A100_v4")                     |
+| `gpu_name`           | Canonical GPU name (H100, A100, RTX 4090, etc.)               |
+| `gpu_variant`        | SXM, PCIe, NVL, HGX — normalized casing, empty if unknown     |
+| `gpu_memory_gb`      | Per-GPU memory in GB                                          |
+| `gpu_count`          | Number of GPUs in this offering                               |
+| `gpu_interconnect`   | NVLink, NVSwitch, PCIe, etc.                                  |
+| `vcpus`              | vCPU count                                                    |
+| `ram_gb`             | System RAM in GB                                              |
+| `storage_desc`       | Storage description (e.g. "2x1900 NVMe SSD")                  |
+| `network_desc`       | Network description (e.g. "100 Gbps")                         |
+| `region`             | Provider-specific region code                                 |
+| `zone`               | Availability zone                                             |
+| `country`            | ISO country code if derivable                                 |
+| `geo_group`          | Geographic grouping (US, EU, APAC, LATAM, AFRICA)             |
+| `pricing_type`       | on_demand, spot, reserved, inference (normalized — see below) |
+| `commitment_period`  | 1yr, 3yr, 1wk, etc.                                           |
+| `price_per_hour`     | Instance-level hourly price (USD)                             |
+| `price_per_gpu_hour` | Per-GPU hourly price (USD)                                    |
+| `currency`           | ISO currency code (usually "USD")                             |
+| `price_unit`         | What the raw price was in: "hour", "token", etc.              |
+| `available`          | Whether this offering is currently available                  |
+| `available_count`    | Number of available instances/GPUs if known                   |
+| `os`                 | Operating system (e.g. "Linux", "Windows")                    |
+| `tenancy`            | Shared, Dedicated, or Host                                    |
+| `pre_installed_sw`   | Pre-installed software (e.g. "NA", "SQL Std")                 |
+| `raw_extra`          | JSON with additional provider-specific fields                 |
 
 Full schema and GPU name normalization logic in [`schema.py`](schema.py).
+
+### Normalized Terminology
+
+Cloud providers use different words for the same pricing concepts. We normalize to **four canonical values** for `pricing_type`:
+
+| Normalized  | Provider terms mapped                                                                     |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| `on_demand` | On-demand, pay-as-you-go                                                                  |
+| `spot`      | Spot (AWS/Azure/GCP), Preemptible (GCP legacy), Interruptible (Vast.ai), Bid (RunPod)     |
+| `reserved`  | Reserved Instances (AWS/Azure), Committed Use Discounts (GCP), Committed pricing (RunPod) |
+| `inference` | Per-token model inference pricing (OpenRouter, DeepInfra, Novita, Together)               |
+
+GPU variants are also normalized: `SXM5`→`SXM`, `pcie`→`PCIe`, `nvlink`→`NVL`, etc.
 
 ## Data Access
 
@@ -66,7 +79,7 @@ GPU compute pricing (per-hour, per-GPU-hour) from cloud providers, neoclouds, an
 | Metric              | Value                                                |
 | ------------------- | ---------------------------------------------------- |
 | Providers           | 65+ (AWS, Azure, GCP, RunPod, Lambda, Vast.ai, etc.) |
-| Pricing Types       | on_demand, spot, preemptible, reserved, committed    |
+| Pricing Types       | on_demand, spot, reserved                            |
 | Geographic Coverage | Global (US, EU, APAC, LATAM, Africa)                 |
 
 ### `_inference.csv` — Model Inference Pricing

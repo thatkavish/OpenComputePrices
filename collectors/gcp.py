@@ -76,9 +76,9 @@ def _classify_usage_type(usage_type: str) -> tuple:
     if "preemptible" in ut or "spot" in ut:
         return "spot", ""
     if "commit1yr" in ut or "commitmentyear1" in ut:
-        return "committed", "1yr"
+        return "reserved", "1yr"
     if "commit3yr" in ut or "commitmentyear3" in ut:
-        return "committed", "3yr"
+        return "reserved", "3yr"
     return "on_demand", ""
 
 

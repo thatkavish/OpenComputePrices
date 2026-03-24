@@ -39,7 +39,7 @@ COLUMNS = [
     "geo_group",              # Geographic grouping: US, EU, APAC, etc.
 
     # --- Pricing ---
-    "pricing_type",           # on_demand, spot, preemptible, reserved, committed, interruptible
+    "pricing_type",           # on_demand, spot, reserved, inference (normalized)
     "commitment_period",      # e.g. "1yr", "3yr", "1wk", "" for on-demand/spot
     "price_per_hour",         # Instance-level hourly price (float, USD)
     "price_per_gpu_hour",     # Per-GPU hourly price (float, USD)
@@ -198,6 +198,61 @@ GEO_PREFIXES = {
     # Azure
     "east": "US", "west": "US", "central": "US", "south": "US", "north": "EU",
 }
+
+
+# ── Pricing type normalization ────────────────────────────────────────────────
+# Different providers use different words for the same economic concept.
+# We normalize to four values: on_demand, spot, reserved, inference.
+
+_PRICING_TYPE_MAP = {
+    # Canonical (pass-through)
+    "on_demand": "on_demand",
+    "spot": "spot",
+    "reserved": "reserved",
+    "inference": "inference",
+    # Synonyms → spot
+    "preemptible": "spot",       # GCP legacy, Vultr
+    "interruptible": "spot",     # Vast.ai
+    "bid": "spot",               # RunPod bid pricing
+    # Synonyms → reserved
+    "committed": "reserved",     # GCP CUD, RunPod term pricing
+    "commitment": "reserved",
+    "savings_plan": "reserved",  # AWS Savings Plans (future-proof)
+}
+
+
+def normalize_pricing_type(raw: str) -> str:
+    """Normalize pricing type to one of: on_demand, spot, reserved, inference."""
+    if not raw:
+        return "on_demand"
+    key = raw.strip().lower().replace("-", "_").replace(" ", "_")
+    return _PRICING_TYPE_MAP.get(key, raw)
+
+
+# ── GPU variant normalization ─────────────────────────────────────────────────
+# Providers report form factors inconsistently ("SXM5", "sxm", "PCIe", "PCIE").
+
+_VARIANT_MAP = {
+    "sxm": "SXM", "sxm4": "SXM", "sxm5": "SXM",
+    "pcie": "PCIe", "pci-e": "PCIe", "pci_e": "PCIe",
+    "nvl": "NVL", "nvlink": "NVL",
+    "hgx": "HGX",
+}
+
+
+def normalize_gpu_variant(raw: str) -> str:
+    """Normalize GPU variant/form-factor to consistent casing."""
+    if not raw:
+        return ""
+    key = raw.strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+    # Direct lookup
+    if key in _VARIANT_MAP:
+        return _VARIANT_MAP[key]
+    # Try with separators preserved
+    key2 = raw.strip().lower()
+    if key2 in _VARIANT_MAP:
+        return _VARIANT_MAP[key2]
+    return raw.strip()
 
 
 def infer_geo_group(region: str) -> str:

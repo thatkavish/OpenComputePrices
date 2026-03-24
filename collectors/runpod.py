@@ -158,7 +158,7 @@ class RunPodCollector(BaseCollector):
                         gpu_name=normalize_gpu_name(display_name),
                         gpu_memory_gb=mem_gb,
                         gpu_count=1,
-                        pricing_type="committed",
+                        pricing_type="reserved",
                         commitment_period=period_label,
                         price_per_hour=commit_price,
                         price_per_gpu_hour=commit_price,
