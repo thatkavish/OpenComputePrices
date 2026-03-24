@@ -41,7 +41,7 @@ class BaseCollector:
         """Retrieve API key from environment."""
         if not self.api_key_env_var:
             return None
-        key = os.environ.get(self.api_key_env_var, "")
+        key = os.environ.get(self.api_key_env_var, "").strip()
         if not key and self.requires_api_key:
             logger.warning(f"[{self.name}] Missing API key: {self.api_key_env_var}")
         return key or None
@@ -74,7 +74,7 @@ class BaseCollector:
         os.makedirs(DATA_DIR, exist_ok=True)
         path = os.path.join(DATA_DIR, f"{self.name}.csv")
 
-        # Read existing rows, dropping any from today's date
+        # Read existing rows, dropping any from this exact timestamp
         existing = []
         total_existing = 0
         if os.path.isfile(path):
@@ -82,10 +82,10 @@ class BaseCollector:
                 reader = csv.DictReader(f)
                 for row in reader:
                     total_existing += 1
-                    if row.get("snapshot_date") != self.snapshot_date:
+                    if row.get("snapshot_ts") != self.snapshot_ts:
                         existing.append(row)
             if len(existing) < total_existing:
-                logger.info(f"[{self.name}] Replacing today's rows in existing file")
+                logger.info(f"[{self.name}] Replacing existing rows from this timestamp")
 
         # Write: existing historical rows + today's new rows
         with open(path, "w", newline="", encoding="utf-8") as f:

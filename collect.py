@@ -50,7 +50,6 @@ from collectors.vastai import VastAICollector
 from collectors.tensordock import TensorDockCollector
 from collectors.lambda_cloud import LambdaCollector
 from collectors.gcp import GCPCollector
-from collectors.infracost import InfracostCollector
 from collectors.skypilot import SkyPilotCollector
 from collectors.getdeploying import GetDeployingCollector
 from collectors.jarvislabs import JarvisLabsCollector
@@ -141,7 +140,6 @@ COLLECTORS = {
     "vastai": VastAICollector,
     "lambda": LambdaCollector,
     "gcp": GCPCollector,
-    "infracost": InfracostCollector,
     "primeintellect": PrimeIntellectCollector,
     "datacrunch": DataCrunchCollector,
 }
@@ -159,7 +157,7 @@ BROWSER_COLLECTORS = [
     "cloreai", "exabits", "aethir", "qubrid",
 ]
 API_KEY_COLLECTORS = [
-    "shadeform", "runpod", "vastai", "lambda", "gcp", "infracost",
+    "shadeform", "runpod", "vastai", "lambda", "gcp",
     "primeintellect", "datacrunch",
 ]
 

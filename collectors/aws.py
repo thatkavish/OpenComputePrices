@@ -231,6 +231,10 @@ class AWSCollector(BaseCollector):
 
             pricing_type = "on_demand" if term_type == "OnDemand" else "reserved"
 
+            lease_length = _f("LeaseContractLength")  # e.g. "1yr", "3yr"
+            purchase_option = _f("PurchaseOption")      # e.g. "No Upfront", "All Upfront", "Partial Upfront"
+            offering_class = _f("OfferingClass")        # e.g. "standard", "convertible"
+
             vcpu_str = _f("vCPU")
             mem_str = _f("Memory")
             ram_gb = ""
@@ -258,6 +262,7 @@ class AWSCollector(BaseCollector):
                 region=_f("Region Code") or region,
                 geo_group=infer_geo_group(region),
                 pricing_type=pricing_type,
+                commitment_period=lease_length,
                 price_per_hour=price,
                 price_per_gpu_hour=round(price_per_gpu, 6),
                 os=os_field,
@@ -268,6 +273,8 @@ class AWSCollector(BaseCollector):
                     "capacity_status": _f("CapacityStatus"),
                     "effective_date": _f("EffectiveDate"),
                     "location": _f("Location"),
+                    "purchase_option": purchase_option,
+                    "offering_class": offering_class,
                 }, separators=(",", ":")),
             ))
 

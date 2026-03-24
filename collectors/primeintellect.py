@@ -15,7 +15,7 @@ from schema import normalize_gpu_name
 
 logger = logging.getLogger(__name__)
 
-API_URL = "https://api.primeintellect.ai/v1/gpu"
+API_URL = "https://api.primeintellect.ai/api/v1/availability/gpus"
 UA = "gpu-pricing-tracker/1.0"
 
 
@@ -32,9 +32,13 @@ class PrimeIntellectCollector(BaseCollector):
         logger.info("[primeintellect] Fetching GPU availability and pricing")
 
         rows = []
-        for endpoint in ["/availability", "/summary"]:
+        page = 0
+        page_size = 200
+        total_fetched = 0
+
+        while True:
             try:
-                url = API_URL + endpoint
+                url = f"{API_URL}?page={page}&pageSize={page_size}"
                 req = urllib.request.Request(url, headers={
                     "Accept": "application/json",
                     "Authorization": f"Bearer {api_key}",
@@ -43,34 +47,34 @@ class PrimeIntellectCollector(BaseCollector):
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     data = json.loads(resp.read().decode())
 
-                if isinstance(data, list):
-                    items = data
-                elif isinstance(data, dict):
-                    items = data.get("data", data.get("gpus", data.get("items", [])))
-                    if isinstance(items, dict):
-                        items = [items]
-                else:
-                    continue
+                items = data.get("items", [])
+                total_count = data.get("totalCount", 0)
 
                 for item in items:
                     row = self._parse_item(item)
                     if row:
                         rows.append(row)
 
-                logger.info(f"[primeintellect] {endpoint}: {len(items)} items")
+                total_fetched += len(items)
+                if total_fetched >= total_count or not items:
+                    break
+                page += 1
+
             except Exception as e:
-                logger.warning(f"[primeintellect] {endpoint} failed: {e}")
+                logger.warning(f"[primeintellect] page {page} failed: {e}")
+                break
 
         logger.info(f"[primeintellect] Total: {len(rows)} rows")
         return rows
 
     def _parse_item(self, item: dict) -> Dict[str, Any]:
-        """Parse a GPU availability/pricing item."""
-        gpu_name = item.get("gpu_type", "") or item.get("gpu_name", "") or item.get("name", "")
-        if not gpu_name:
+        """Parse a GPU availability/pricing item from the API response."""
+        gpu_type = item.get("gpuType", "") or item.get("cloudId", "")
+        if not gpu_type:
             return None
 
-        price = item.get("price_per_hour", 0) or item.get("price", 0) or item.get("hourly_price", 0)
+        prices = item.get("prices", {})
+        price = prices.get("onDemand", 0)
         try:
             price = float(price)
         except (ValueError, TypeError):
@@ -78,30 +82,49 @@ class PrimeIntellectCollector(BaseCollector):
         if price <= 0:
             return None
 
-        gpu_count = item.get("gpu_count", 1) or item.get("num_gpus", 1) or 1
-        gpu_mem = item.get("gpu_memory", 0) or item.get("vram_gb", 0) or 0
-        available = item.get("available", True)
-        available_count = item.get("available_count", "") or item.get("quantity", "")
-        region = item.get("region", "") or item.get("location", "")
+        gpu_count = item.get("gpuCount", 1) or 1
+        gpu_mem = item.get("gpuMemory", 0) or 0
+        region = item.get("region", "")
+        country = item.get("country", "")
+        provider = item.get("provider", "primeintellect")
+        socket = item.get("socket", "")
+        stock = item.get("stockStatus", "")
+        available = stock.lower() != "out_of_stock" if stock else True
 
         price_per_gpu = price / gpu_count if gpu_count > 0 else price
 
+        vcpus = ""
+        ram = ""
+        vcpu_info = item.get("vcpu", {})
+        mem_info = item.get("memory", {})
+        if vcpu_info:
+            vcpus = vcpu_info.get("defaultCount", "")
+        if mem_info:
+            ram = mem_info.get("defaultCount", "")
+
         return self.make_row(
             provider="primeintellect",
-            instance_type=item.get("instance_type", "") or gpu_name,
-            gpu_name=normalize_gpu_name(gpu_name),
+            instance_type=item.get("cloudId", gpu_type),
+            gpu_name=normalize_gpu_name(gpu_type),
+            gpu_variant=socket,
             gpu_memory_gb=gpu_mem,
             gpu_count=gpu_count,
+            vcpus=vcpus,
+            ram_gb=ram,
             region=region,
+            country=country,
             pricing_type="on_demand",
             price_per_hour=price,
             price_per_gpu_hour=round(price_per_gpu, 6),
+            currency=prices.get("currency", "USD"),
             available=available,
-            available_count=available_count,
             raw_extra=json.dumps({
-                k: v for k, v in item.items()
-                if k not in ("gpu_type", "gpu_name", "name", "price_per_hour",
-                             "price", "hourly_price", "gpu_count", "num_gpus",
-                             "gpu_memory", "vram_gb", "available", "region")
+                "upstream_provider": provider,
+                "socket": socket,
+                "stockStatus": stock,
+                "dataCenter": item.get("dataCenter", ""),
+                "interconnect": item.get("interconnect", ""),
+                "interconnectType": item.get("interconnectType", ""),
+                "isVariable": prices.get("isVariable", False),
             }, separators=(",", ":"), default=str),
         )

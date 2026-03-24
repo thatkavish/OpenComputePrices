@@ -61,7 +61,6 @@ jobs:
           VASTAI_API_KEY: ${{ secrets.VASTAI_API_KEY }}
           LAMBDA_API_KEY: ${{ secrets.LAMBDA_API_KEY }}
           GCP_API_KEY: ${{ secrets.GCP_API_KEY }}
-          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
           TENSORDOCK_API_KEY: ${{ secrets.TENSORDOCK_API_KEY }}
           PRIMEINTELLECT_API_KEY: ${{ secrets.PRIMEINTELLECT_API_KEY }}
           DATACRUNCH_API_KEY: ${{ secrets.DATACRUNCH_API_KEY }}
@@ -72,7 +71,7 @@ jobs:
           else
             # Run all non-browser collectors (API + static scrapers + API-key)
             python collect.py --no-auth-only
-            python collect.py shadeform runpod vastai lambda gcp infracost tensordock primeintellect datacrunch
+            python collect.py shadeform runpod vastai lambda gcp primeintellect datacrunch
           fi
 
       - name: Upload data to release

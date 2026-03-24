@@ -86,7 +86,6 @@ SOURCE_PRIORITY = {
     "qubrid":          2,
     # --- Tier 3: Open-source catalogs ---
     "skypilot":        3,
-    "infracost":       3,
     # --- Tier 4: Aggregators ---
     "shadeform":       4,
     "getdeploying":    5,

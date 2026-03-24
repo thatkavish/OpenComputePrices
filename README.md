@@ -149,7 +149,6 @@ These collectors use headless Chromium to render JS-heavy pricing pages. Require
 | **Vast.ai**         | 17K+ GPUs, on-demand + interruptible         | `VASTAI_API_KEY`         |
 | **Lambda Cloud**    | H100, H200, A100, B200                       | `LAMBDA_API_KEY`         |
 | **GCP**             | All GPU SKUs, all regions                    | `GCP_API_KEY`            |
-| **Infracost**       | AWS + Azure + GCP deep coverage              | `INFRACOST_API_KEY`      |
 | **Prime Intellect** | GPU availability and pricing                 | `PRIMEINTELLECT_API_KEY` |
 | **DataCrunch**      | Dynamic pricing (changes multiple times/day) | `DATACRUNCH_API_KEY`     |
 
@@ -210,7 +209,6 @@ Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job
    - `VASTAI_API_KEY` — [Get free key](https://vast.ai)
    - `LAMBDA_API_KEY` — [Get free key](https://lambdalabs.com)
    - `GCP_API_KEY` — [Get free key](https://console.cloud.google.com/apis/credentials)
-   - `INFRACOST_API_KEY` — [Get free key](https://www.infracost.io/docs/integrations/infracost_api/)
    - `PRIMEINTELLECT_API_KEY` — [Get free key](https://docs.primeintellect.ai)
    - `DATACRUNCH_API_KEY` — [Get free key](https://datacrunch.io)
    - `TENSORDOCK_API_KEY` — [Get free key](https://dashboard.tensordock.com/developers) (optional)
@@ -260,7 +258,6 @@ gpu-pricing-tracker/
 │   ├── vastai.py               # Vast.ai marketplace
 │   ├── lambda_cloud.py         # Lambda Cloud
 │   ├── gcp.py                  # GCP Billing Catalog
-│   ├── infracost.py            # Infracost
 │   ├── primeintellect.py       # Prime Intellect
 │   └── datacrunch.py           # DataCrunch / Verda
 ├── data/                       # Local data directory (gitignored; download from Releases)
