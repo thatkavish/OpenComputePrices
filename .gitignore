@@ -7,3 +7,6 @@ dist/
 build/
 .venv/
 venv/
+
+# Data CSVs are stored in GitHub Releases (too large for git)
+data/*.csv

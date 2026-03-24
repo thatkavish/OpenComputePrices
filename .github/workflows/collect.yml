@@ -19,6 +19,9 @@ on:
 permissions:
   contents: write
 
+env:
+  DATA_TAG: latest-data
+
 jobs:
   # Job 1: Fast API + static HTML collectors (no Playwright needed)
   collect-api:
@@ -28,6 +31,19 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Download existing data from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p data
+          if gh release download "$DATA_TAG" -p 'data.tar.gz' -D /tmp/ 2>/dev/null; then
+            tar xzf /tmp/data.tar.gz -C data/
+            echo "Downloaded existing data from release"
+            ls -lh data/*.csv 2>/dev/null | wc -l | xargs -I{} echo "  {} CSV files"
+          else
+            echo "No existing release found — starting fresh"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -58,19 +74,26 @@ jobs:
             python collect.py shadeform runpod vastai lambda gcp infracost tensordock primeintellect datacrunch
           fi
 
-      - name: Commit and push data
+      - name: Upload data to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/
-          if git diff --cached --quiet; then
-            echo "No new data to commit"
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          ROW_COUNT=$(cat data/*.csv 2>/dev/null | wc -l)
+          tar czf /tmp/data.tar.gz -C data/ .
+          SIZE=$(du -h /tmp/data.tar.gz | cut -f1)
+          echo "Data archive: ${SIZE} (${ROW_COUNT} total rows)"
+
+          # Create release if it doesn't exist, otherwise update the asset
+          if gh release view "$DATA_TAG" &>/dev/null; then
+            gh release upload "$DATA_TAG" /tmp/data.tar.gz --clobber
+            gh release edit "$DATA_TAG" --notes "Last updated: ${DATE} — ${ROW_COUNT} rows"
           else
-            DATE=$(date -u +%Y-%m-%d)
-            ROW_COUNT=$(wc -l data/*.csv 2>/dev/null | tail -1 | awk '{print $1}')
-            git commit -m "data: daily API collection ${DATE} (${ROW_COUNT} total rows)"
-            git push
+            gh release create "$DATA_TAG" /tmp/data.tar.gz \
+              --title "Latest GPU Pricing Data" \
+              --notes "Last updated: ${DATE} — ${ROW_COUNT} rows"
           fi
+          echo "API collection uploaded: ${DATE}"
 
   # Job 2: Playwright browser-based scrapers (needs Chromium)
   collect-browser:
@@ -83,8 +106,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Pull latest data
-        run: git pull --rebase origin main || true
+      - name: Download data from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p data
+          gh release download "$DATA_TAG" -p 'data.tar.gz' -D /tmp/
+          tar xzf /tmp/data.tar.gz -C data/
+          echo "Downloaded data from release"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -99,15 +128,15 @@ jobs:
       - name: Run browser-based collectors
         run: python collect.py --browser
 
-      - name: Commit and push data
+      - name: Upload data to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/
-          if git diff --cached --quiet; then
-            echo "No new data to commit"
-          else
-            DATE=$(date -u +%Y-%m-%d)
-            git commit -m "data: daily browser collection ${DATE}"
-            git push
-          fi
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          ROW_COUNT=$(cat data/*.csv 2>/dev/null | wc -l)
+          tar czf /tmp/data.tar.gz -C data/ .
+          SIZE=$(du -h /tmp/data.tar.gz | cut -f1)
+          echo "Data archive: ${SIZE} (${ROW_COUNT} total rows)"
+          gh release upload "$DATA_TAG" /tmp/data.tar.gz --clobber
+          gh release edit "$DATA_TAG" --notes "Last updated: ${DATE} — ${ROW_COUNT} rows"
+          echo "Browser collection uploaded: ${DATE}"

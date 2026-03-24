@@ -1,8 +1,0 @@
-snapshot_date,snapshot_ts,source,provider,instance_type,instance_family,gpu_name,gpu_variant,gpu_memory_gb,gpu_count,gpu_interconnect,vcpus,ram_gb,storage_desc,network_desc,region,zone,country,geo_group,pricing_type,commitment_period,price_per_hour,price_per_gpu_hour,currency,price_unit,available,available_count,os,tenancy,pre_installed_sw,raw_extra
-2026-03-22,2026-03-22T23:57:08Z,e2e,e2e,NVIDIA B200,,B200,,192,1,,32,400,,,,,,,on_demand,,4.9,4.9,USD,hour,True,,,,,"{""monthly"":3431.0,""annual"":34164.0}"
-2026-03-22,2026-03-22T23:57:08Z,e2e,e2e,NVIDIA H200,,H200,,141,1,,30,375,,,,,,,on_demand,,3.49,3.49,USD,hour,True,,,,,"{""monthly"":2182.7,""annual"":22776.0}"
-2026-03-22,2026-03-22T23:57:08Z,e2e,e2e,NVIDIA H100,,H100,,80,1,,26,250,,,,,,,on_demand,,2.9,2.9,USD,hour,True,,,,,"{""monthly"":1817.7,""annual"":18396.0}"
-2026-03-22,2026-03-22T23:57:08Z,e2e,e2e,NVIDIA A100,,A100,,80,1,,16,115,,,,,,,on_demand,,2.1,2.1,USD,hour,True,,,,,"{""monthly"":1103.0,""annual"":10556.0}"
-2026-03-22,2026-03-22T23:57:08Z,e2e,e2e,NVIDIA A100,,A100,,40,1,,16,115,,,,,,,on_demand,,1.98,1.98,USD,hour,True,,,,,"{""monthly"":903.0,""annual"":9722.0}"
-2026-03-22,2026-03-22T23:57:08Z,e2e,e2e,NVIDIA A40,,A40,,48,1,,16,100,,,,,,,on_demand,,1.44,1.44,USD,hour,True,,,,,"{""monthly"":817.5,""annual"":9417.6}"
-2026-03-22,2026-03-22T23:57:08Z,e2e,e2e,NVIDIA L40S,,L40S,,48,1,,60,220,,,,,,,on_demand,,1.2,1.2,USD,hour,True,,,,,"{""monthly"":626.7,""annual"":6570.0}"

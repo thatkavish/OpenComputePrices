@@ -1,9 +1,0 @@
-snapshot_date,snapshot_ts,source,provider,instance_type,instance_family,gpu_name,gpu_variant,gpu_memory_gb,gpu_count,gpu_interconnect,vcpus,ram_gb,storage_desc,network_desc,region,zone,country,geo_group,pricing_type,commitment_period,price_per_hour,price_per_gpu_hour,currency,price_unit,available,available_count,os,tenancy,pre_installed_sw,raw_extra
-2026-03-22,2026-03-22T23:34:16Z,crusoe,crusoe,H200_on_demand,,H200,SXM,141,1,,,,,,,,,,on_demand,,4.29,4.29,USD,hour,True,,,,,"{""row_id"":""H200_on_demand_4.29""}"
-2026-03-22,2026-03-22T23:34:16Z,crusoe,crusoe,H100_on_demand,,H100,SXM5,80,1,,,,,,,,,,on_demand,,3.9,3.9,USD,hour,True,,,,,"{""row_id"":""H100_on_demand_3.90""}"
-2026-03-22,2026-03-22T23:34:16Z,crusoe,crusoe,A100_on_demand,,A100,SXM,80,1,,,,,,,,,,on_demand,,1.95,1.95,USD,hour,True,,,,,"{""row_id"":""A100_on_demand_1.95""}"
-2026-03-22,2026-03-22T23:34:16Z,crusoe,crusoe,A100_on_demand,,A100,PCIe,80,1,,,,,,,,,,on_demand,,1.65,1.65,USD,hour,True,,,,,"{""row_id"":""A100_on_demand_1.65""}"
-2026-03-22,2026-03-22T23:34:16Z,crusoe,crusoe,A100_on_demand,,A100,PCIe,80,1,,,,,,,,,,on_demand,,1.45,1.45,USD,hour,True,,,,,"{""row_id"":""A100_on_demand_1.45""}"
-2026-03-22,2026-03-22T23:34:16Z,crusoe,crusoe,L40S_on_demand,,L40S,,48,1,,,,,,,,,,on_demand,,1.0,1.0,USD,hour,True,,,,,"{""row_id"":""L40S_on_demand_1.00""}"
-2026-03-22,2026-03-22T23:34:16Z,crusoe,crusoe,MI300X_on_demand,,MI300X,,192,1,,,,,,,,,,on_demand,,3.45,3.45,USD,hour,True,,,,,"{""row_id"":""MI300X_on_demand_3.45""}"
-2026-03-22,2026-03-22T23:34:16Z,crusoe,crusoe,A40_on_demand,,A40,,48,1,,,,,,,,,,on_demand,,0.9,0.9,USD,hour,True,,,,,"{""row_id"":""A40_on_demand_0.90""}"
