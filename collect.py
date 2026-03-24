@@ -10,9 +10,35 @@ Usage:
 
 import argparse
 import logging
+import os
 import sys
 import time
 from datetime import datetime, timezone
+
+
+def _load_dotenv():
+    """Load .env files into os.environ (stdlib only, no python-dotenv needed)."""
+    root = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(root, ".env"),
+        os.path.join(root, "collectors", ".env"),
+    ]
+    for path in candidates:
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip().strip("\"'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+
+
+_load_dotenv()
 
 from collectors.aws import AWSCollector
 from collectors.azure import AzureCollector
