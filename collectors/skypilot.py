@@ -60,7 +60,7 @@ class SkyPilotCollector(BaseCollector):
         """Fetch and parse a single SkyPilot catalog CSV."""
         try:
             req = urllib.request.Request(url, headers={
-                "User-Agent": "gpu-pricing-tracker/1.0",
+                "User-Agent": "OpenComputePrices/1.0",
             })
             with urllib.request.urlopen(req, timeout=120) as resp:
                 text = resp.read().decode("utf-8")

@@ -56,9 +56,7 @@ from collectors.jarvislabs import JarvisLabsCollector
 from collectors.thundercompute import ThunderComputeCollector
 from collectors.crusoe import CrusoeCollector
 from collectors.novita import NovitaCollector
-from collectors.hyperstack import HyperstackCollector
 from collectors.akash import AkashCollector
-from collectors.salad import SaladCollector
 from collectors.cudo import CudoCollector
 from collectors.vultr import VultrCollector
 from collectors.paperspace import PaperspaceCollector

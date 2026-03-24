@@ -18,7 +18,7 @@ from schema import normalize_gpu_name
 logger = logging.getLogger(__name__)
 
 API_URL = "https://console-api.akash.network/v1/gpu-prices"
-UA = "gpu-pricing-tracker/1.0"
+UA = "OpenComputePrices/1.0"
 
 
 class AkashCollector(BaseCollector):

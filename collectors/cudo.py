@@ -18,7 +18,7 @@ from schema import normalize_gpu_name
 logger = logging.getLogger(__name__)
 
 API_URL = "https://rest.compute.cudo.org/v1/vms/machine-types"
-UA = "gpu-pricing-tracker/1.0"
+UA = "OpenComputePrices/1.0"
 
 
 class CudoCollector(BaseCollector):

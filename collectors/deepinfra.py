@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 MODELS_API = "https://api.deepinfra.com/models/list"
 PRICING_URL = "https://deepinfra.com/pricing"
-UA = "gpu-pricing-tracker/1.0"
+UA = "OpenComputePrices/1.0"
 UA_BROWSER = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 
 

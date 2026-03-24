@@ -78,7 +78,7 @@ class TensorDockCollector(BaseCollector):
         try:
             req = urllib.request.Request(LOCATIONS_URL, headers={
                 "Accept": "application/json",
-                "User-Agent": "gpu-pricing-tracker/1.0",
+                "User-Agent": "OpenComputePrices/1.0",
             })
             with urllib.request.urlopen(req, timeout=60) as resp:
                 data = json.loads(resp.read().decode())
@@ -148,7 +148,7 @@ class TensorDockCollector(BaseCollector):
         api_key = self.get_api_key()
         headers = {
             "Accept": "application/json",
-            "User-Agent": "gpu-pricing-tracker/1.0",
+            "User-Agent": "OpenComputePrices/1.0",
         }
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"

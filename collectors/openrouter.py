@@ -27,7 +27,7 @@ class OpenRouterCollector(BaseCollector):
         try:
             req = urllib.request.Request(API_URL, headers={
                 "Accept": "application/json",
-                "User-Agent": "gpu-pricing-tracker/1.0",
+                "User-Agent": "OpenComputePrices/1.0",
             })
             with urllib.request.urlopen(req, timeout=60) as resp:
                 data = json.loads(resp.read().decode())

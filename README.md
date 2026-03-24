@@ -2,7 +2,7 @@
 
 **Open-source historical GPU and inference cloud pricing dataset**, automatically updated daily via GitHub Actions.
 
-Collects pricing data from **43 collectors across 65+ GPU cloud providers** — hyperscalers, neoclouds, marketplaces, aggregators, and inference platforms — storing every dimension that affects price at maximum granularity.
+Collects pricing data from **42 collectors across 65+ GPU cloud providers** — hyperscalers, neoclouds, marketplaces, aggregators, and inference platforms — storing every dimension that affects price at maximum granularity.
 
 ## Data Schema
 
@@ -90,19 +90,19 @@ The databases are automatically separated during the unification step (`unify.py
 
 ### No Authentication Required — APIs
 
-| Source           | Coverage                                 | Notes                                                       |
-| ---------------- | ---------------------------------------- | ----------------------------------------------------------- |
-| **AWS**          | All GPU EC2 instances, 27 regions        | On-demand pricing for p2–p6, g3–g6, trn, inf (17 GPU types) |
-| **Azure**        | All GPU VMs (NC/ND/NV series)            | On-demand + spot + reserved, all regions                    |
-| **Oracle Cloud** | GPU instances (H100, A100, MI300X, etc.) | Uniform cross-region pricing                                |
-| **OpenRouter**   | 300+ inference models, 60+ providers     | Per-token pricing (inference, not GPU-hour)                 |
-| **TensorDock**   | GPU marketplace (locations + hostnodes)  | Per-GPU hourly pricing with live availability               |
-| **SkyPilot**     | 15 clouds via open-source CSVs           | AWS, GCP, Azure, Lambda, RunPod, Vast, OCI, Nebius, etc.    |
-| **Akash**        | 18 GPU models, decentralized marketplace | Min/max/avg/weighted pricing + availability                 |
-| **CUDO Compute** | GPU machine types across data centers    | Per-GPU hourly pricing per datacenter                       |
-| **Vultr**        | GPU cloud plans (A16, A40, A100, L40S)   | On-demand + preemptible via public API                      |
-| **Linode**       | GPU plans (A100, L40S, RTX 4000 Ada)     | Public API with regional pricing overrides                  |
-| **DeepInfra**    | Inference models + GPU instances         | Public models API + pricing page scraping                   |
+| Source           | Coverage                                 | Notes                                                    |
+| ---------------- | ---------------------------------------- | -------------------------------------------------------- |
+| **AWS**          | All GPU EC2 instances, 27 regions        | On-demand + reserved pricing for p2–p6, g3–g6, trn, inf  |
+| **Azure**        | All GPU VMs (NC/ND/NV series)            | On-demand + spot + reserved, all regions                 |
+| **Oracle Cloud** | GPU instances (H100, A100, MI300X, etc.) | Uniform cross-region pricing                             |
+| **OpenRouter**   | 300+ inference models, 60+ providers     | Per-token pricing (inference, not GPU-hour)              |
+| **TensorDock**   | GPU marketplace (locations + hostnodes)  | Per-GPU hourly pricing with live availability            |
+| **SkyPilot**     | 15 clouds via open-source CSVs           | AWS, GCP, Azure, Lambda, RunPod, Vast, OCI, Nebius, etc. |
+| **Akash**        | 18 GPU models, decentralized marketplace | Min/max/avg/weighted pricing + availability              |
+| **CUDO Compute** | GPU machine types across data centers    | Per-GPU hourly pricing per datacenter                    |
+| **Vultr**        | GPU cloud plans (A16, A40, A100, L40S)   | On-demand + preemptible via public API                   |
+| **Linode**       | GPU plans (A100, L40S, RTX 4000 Ada)     | Public API with regional pricing overrides               |
+| **DeepInfra**    | Inference models + GPU instances         | Public models API + pricing page scraping                |
 
 ### No Authentication Required — Web Scrapers
 
@@ -203,7 +203,7 @@ Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job
 ### Setup
 
 1. Fork/clone this repo
-2. Add API keys as [repository secrets](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions):
+2. Add API keys as [environment secrets](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions) under an environment named `.env`, or as repository secrets:
    - `SHADEFORM_API_KEY` — [Get free key](https://shadeform.ai)
    - `RUNPOD_API_KEY` — [Get free key](https://runpod.io)
    - `VASTAI_API_KEY` — [Get free key](https://vast.ai)
@@ -218,7 +218,7 @@ Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job
 ## File Structure
 
 ```
-gpu-pricing-tracker/
+OpenComputePrices/
 ├── collect.py                  # Main entry point — runs collectors, builds unified DBs
 ├── unify.py                    # Merges per-source CSVs into deduplicated master DBs
 ├── schema.py                   # Standardized 31-column schema & GPU name normalization

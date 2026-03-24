@@ -16,7 +16,7 @@ from schema import normalize_gpu_name
 logger = logging.getLogger(__name__)
 
 API_URL = "https://api.primeintellect.ai/api/v1/availability/gpus"
-UA = "gpu-pricing-tracker/1.0"
+UA = "OpenComputePrices/1.0"
 
 
 class PrimeIntellectCollector(BaseCollector):
