@@ -27,6 +27,7 @@ jobs:
   collect-api:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    environment: .env
 
     steps:
       - name: Checkout repository
@@ -99,6 +100,7 @@ jobs:
   collect-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: .env
     needs: collect-api
     if: github.event.inputs.no_auth_only != 'true'
 
