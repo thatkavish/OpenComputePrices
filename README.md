@@ -44,9 +44,20 @@ Every row in the dataset contains 31 columns:
 
 Full schema and GPU name normalization logic in [`schema.py`](schema.py).
 
-## Databases
+## Data Access
 
-This project maintains two separate unified databases:
+Data is stored as a compressed archive in [GitHub Releases](../../releases/tag/latest-data) (too large for git). Download the latest dataset:
+
+```bash
+# Download and extract (requires gh CLI)
+gh release download latest-data -p 'data.tar.gz'
+mkdir -p data && tar xzf data.tar.gz -C data/
+
+# Or via curl
+curl -L https://github.com/thatkavish/OpenComputePrices/releases/download/latest-data/data.tar.gz | tar xz -C data/
+```
+
+The archive contains per-source CSVs (`aws.csv`, `azure.csv`, etc.) and two unified databases:
 
 ### `_master.csv` — GPU Cloud Pricing
 
@@ -145,9 +156,11 @@ These collectors use headless Chromium to render JS-heavy pricing pages. Require
 ## Quick Start
 
 ```bash
-# Clone
-git clone https://github.com/kavish-p/gpu-pricing-tracker.git
-cd gpu-pricing-tracker
+# Clone and download data
+git clone https://github.com/thatkavish/OpenComputePrices.git
+cd OpenComputePrices
+gh release download latest-data -p 'data.tar.gz'
+mkdir -p data && tar xzf data.tar.gz -C data/
 
 # Run all no-auth API + scraper collectors (no Playwright needed)
 python collect.py --no-auth-only
@@ -186,7 +199,7 @@ The workflow at `.github/workflows/collect.yml` runs every 6 hours at 00:00, 06:
 1. **`collect-api`** — Runs all API + scraper collectors (skips API-key ones if secrets not configured)
 2. **`collect-browser`** — Runs Playwright browser-based collectors (installs Chromium)
 
-Both jobs append new rows to `data/{source}.csv` and commit/push automatically.
+Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job downloads the latest data archive, runs collectors, and uploads the updated archive.
 
 ### Setup
 
@@ -250,11 +263,9 @@ gpu-pricing-tracker/
 │   ├── infracost.py            # Infracost
 │   ├── primeintellect.py       # Prime Intellect
 │   └── datacrunch.py           # DataCrunch / Verda
-├── data/                       # Collected pricing CSVs (one per source + unified DBs)
-│   ├── _master.csv             # Unified GPU cloud pricing
-│   └── _inference.csv          # Unified inference pricing
+├── data/                       # Local data directory (gitignored; download from Releases)
 ├── .github/workflows/
-│   └── collect.yml             # Automated collection (every 6 hours)
+│   └── collect.yml             # Automated collection (every 6 hours, stores data in Releases)
 └── README.md
 ```
 
