@@ -206,12 +206,18 @@ Core collectors use only the Python standard library. Browser-based collectors a
 
 ## GitHub Actions
 
-The workflow at `.github/workflows/collect.yml` runs every 6 hours at 00:00, 06:00, 12:00, and 18:00 UTC across two jobs:
+The workflow at `.github/workflows/collect.yml` runs every 12 hours at 00:00 and 12:00 UTC across two jobs:
 
 1. **`collect-api`** — Runs all API + scraper collectors (skips API-key ones if secrets not configured)
 2. **`collect-browser`** — Runs Playwright browser-based collectors (installs Chromium)
 
-Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job downloads the latest data archive, runs collectors, and uploads the updated archive.
+Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job downloads the latest data archive, runs collectors in parallel, prunes old data, and uploads the updated archive.
+
+**Data lifecycle:**
+
+- **Active window (90 days):** Per-source CSVs in `data/` keep both daily snapshots, capped at 90 days
+- **Archive:** Rows older than 90 days are compressed and uploaded as monthly archive assets in the same Release (e.g. `archive_2026-01.csv.gz`)
+- **Dedup:** Exact duplicate rows (same timestamp + instance + region + price) are removed
 
 ### Setup
 
@@ -238,7 +244,7 @@ OpenComputePrices/
 ├── summary.py                  # Quick dataset inspection tool
 ├── requirements.txt            # Playwright (optional for browser collectors)
 ├── collectors/
-│   ├── base.py                 # Base collector class with dedup-on-rerun logic
+│   ├── base.py                 # Base collector class with append-only save + prune/archive
 │   ├── browser_scraper.py      # Base class for Playwright browser-based scrapers
 │   ├── browser_providers.py    # 13 Playwright browser scrapers (CoreWeave, Together, etc.)
 │   ├── # --- No-auth APIs ---
@@ -273,9 +279,9 @@ OpenComputePrices/
 │   ├── gcp.py                  # GCP Billing Catalog
 │   ├── primeintellect.py       # Prime Intellect
 │   └── datacrunch.py           # DataCrunch / Verda
-├── data/                       # Local data directory (gitignored; download from Releases)
+├── data/                       # Active data (last 90 days, gitignored; download from Releases)
 ├── .github/workflows/
-│   └── collect.yml             # Automated collection (every 6 hours, stores data in Releases)
+│   └── collect.yml             # Automated collection (every 12 hours, stores data in Releases)
 └── README.md
 ```
 

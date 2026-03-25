@@ -13,6 +13,7 @@ import logging
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 
@@ -204,32 +205,41 @@ def main():
     total_rows = 0
     t0 = time.time()
 
+    # Pre-filter: skip unknown and missing-key collectors
+    runnable = []
     for name in names:
         if name not in COLLECTORS:
             logger.warning(f"Unknown collector: {name}")
             continue
-
         cls = COLLECTORS[name]
         collector = cls()
-
-        # Skip if API key required but missing
         if collector.requires_api_key and not collector.get_api_key():
             logger.warning(f"[{name}] Skipping — missing {collector.api_key_env_var}")
             results[name] = {"status": "skipped", "reason": f"missing {collector.api_key_env_var}", "rows": 0}
             continue
+        runnable.append((name, collector))
 
-        logger.info(f"[{name}] Starting collection...")
+    def _run_one(name_collector):
+        name, collector = name_collector
         ct0 = time.time()
         try:
             count = collector.run()
             elapsed = time.time() - ct0
-            results[name] = {"status": "ok", "rows": count, "elapsed": f"{elapsed:.1f}s"}
-            total_rows += count
             logger.info(f"[{name}] Done: {count} rows in {elapsed:.1f}s")
+            return name, {"status": "ok", "rows": count, "elapsed": f"{elapsed:.1f}s"}
         except Exception as e:
             elapsed = time.time() - ct0
-            results[name] = {"status": "error", "error": str(e), "rows": 0, "elapsed": f"{elapsed:.1f}s"}
             logger.error(f"[{name}] Failed: {e}", exc_info=True)
+            return name, {"status": "error", "error": str(e), "rows": 0, "elapsed": f"{elapsed:.1f}s"}
+
+    # Run collectors in parallel (thread pool — most time is network I/O)
+    max_workers = min(8, len(runnable)) if runnable else 1
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_run_one, item): item[0] for item in runnable}
+        for future in as_completed(futures):
+            name, res = future.result()
+            results[name] = res
+            total_rows += res.get("rows", 0)
 
     total_elapsed = time.time() - t0
 
@@ -248,6 +258,16 @@ def main():
     print(f"  {'-'*60}")
     print(f"  {'TOTAL':<15} {'':10} {total_rows:>8}  {total_elapsed:.1f}s")
     print(f"{'='*70}\n")
+
+    # Prune CSVs: dedup exact duplicates, enforce 90-day retention
+    if total_rows > 0:
+        logger.info("Pruning CSVs (dedup + retention)...")
+        try:
+            from collectors.base import prune_all_csvs, DATA_DIR
+            archive_path = os.path.join(DATA_DIR, "_expired.csv")
+            prune_all_csvs(archive_path=archive_path)
+        except Exception as e:
+            logger.error(f"Pruning failed: {e}", exc_info=True)
 
     # Build unified master database unless --no-unify
     if not args.no_unify and total_rows > 0:

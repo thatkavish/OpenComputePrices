@@ -2,8 +2,8 @@ name: Collect GPU Pricing Data
 
 on:
   schedule:
-    # Run every 6 hours (00:00, 06:00, 12:00, 18:00 UTC)
-    - cron: "0 */6 * * *"
+    # Run every 12 hours (00:00, 12:00 UTC)
+    - cron: "0 */12 * * *"
   workflow_dispatch:
     inputs:
       sources:
@@ -79,12 +79,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          ROW_COUNT=$(cat data/*.csv 2>/dev/null | wc -l)
-          tar czf /tmp/data.tar.gz -C data/ .
-          SIZE=$(du -h /tmp/data.tar.gz | cut -f1)
-          echo "Data archive: ${SIZE} (${ROW_COUNT} total rows)"
 
-          # Create release if it doesn't exist, otherwise update the asset
+          # Upload expired rows as a separate archive (if any were pruned)
+          if [ -f data/_expired.csv ] && [ -s data/_expired.csv ]; then
+            MONTH=$(date -u +%Y-%m)
+            gzip -c data/_expired.csv > "/tmp/archive_${MONTH}.csv.gz"
+            ARCH_SIZE=$(du -h "/tmp/archive_${MONTH}.csv.gz" | cut -f1)
+            echo "Uploading expired archive: ${ARCH_SIZE}"
+            if gh release view "$DATA_TAG" &>/dev/null; then
+              gh release upload "$DATA_TAG" "/tmp/archive_${MONTH}.csv.gz" --clobber
+            fi
+            rm data/_expired.csv
+          fi
+
+          # Package active data (exclude generated files)
+          ROW_COUNT=$(cat data/*.csv 2>/dev/null | grep -cv '^snapshot_date' || echo 0)
+          tar czf /tmp/data.tar.gz --exclude='_expired.csv' -C data/ .
+          SIZE=$(du -h /tmp/data.tar.gz | cut -f1)
+          echo "Data archive: ${SIZE} (${ROW_COUNT} rows)"
+
           TITLE="GPU Pricing Data — $(date -u '+%Y-%m-%d %H:%M UTC')"
           if gh release view "$DATA_TAG" &>/dev/null; then
             gh release upload "$DATA_TAG" /tmp/data.tar.gz --clobber
@@ -135,10 +148,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          ROW_COUNT=$(cat data/*.csv 2>/dev/null | wc -l)
-          tar czf /tmp/data.tar.gz -C data/ .
+
+          # Upload expired rows as a separate archive (if any were pruned)
+          if [ -f data/_expired.csv ] && [ -s data/_expired.csv ]; then
+            MONTH=$(date -u +%Y-%m)
+            gzip -c data/_expired.csv > "/tmp/archive_${MONTH}.csv.gz"
+            ARCH_SIZE=$(du -h "/tmp/archive_${MONTH}.csv.gz" | cut -f1)
+            echo "Uploading expired archive: ${ARCH_SIZE}"
+            gh release upload "$DATA_TAG" "/tmp/archive_${MONTH}.csv.gz" --clobber
+            rm data/_expired.csv
+          fi
+
+          ROW_COUNT=$(cat data/*.csv 2>/dev/null | grep -cv '^snapshot_date' || echo 0)
+          tar czf /tmp/data.tar.gz --exclude='_expired.csv' -C data/ .
           SIZE=$(du -h /tmp/data.tar.gz | cut -f1)
-          echo "Data archive: ${SIZE} (${ROW_COUNT} total rows)"
+          echo "Data archive: ${SIZE} (${ROW_COUNT} rows)"
           TITLE="GPU Pricing Data — $(date -u '+%Y-%m-%d %H:%M UTC')"
           gh release upload "$DATA_TAG" /tmp/data.tar.gz --clobber
           gh release edit "$DATA_TAG" --title "${TITLE}" --notes "Last updated: ${DATE} — ${ROW_COUNT} rows"
