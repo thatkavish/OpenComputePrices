@@ -85,7 +85,7 @@ jobs:
           echo "Data archive: ${SIZE} (${ROW_COUNT} total rows)"
 
           # Create release if it doesn't exist, otherwise update the asset
-          TITLE="GPU Pricing Data — $(date -u +%Y-%m-%d %H:%M UTC)"
+          TITLE="GPU Pricing Data — $(date -u '+%Y-%m-%d %H:%M UTC')"
           if gh release view "$DATA_TAG" &>/dev/null; then
             gh release upload "$DATA_TAG" /tmp/data.tar.gz --clobber
             gh release edit "$DATA_TAG" --title "${TITLE}" --notes "Last updated: ${DATE} — ${ROW_COUNT} rows"
@@ -139,7 +139,7 @@ jobs:
           tar czf /tmp/data.tar.gz -C data/ .
           SIZE=$(du -h /tmp/data.tar.gz | cut -f1)
           echo "Data archive: ${SIZE} (${ROW_COUNT} total rows)"
-          TITLE="GPU Pricing Data — $(date -u +%Y-%m-%d %H:%M UTC)"
+          TITLE="GPU Pricing Data — $(date -u '+%Y-%m-%d %H:%M UTC')"
           gh release upload "$DATA_TAG" /tmp/data.tar.gz --clobber
           gh release edit "$DATA_TAG" --title "${TITLE}" --notes "Last updated: ${DATE} — ${ROW_COUNT} rows"
           echo "Browser collection uploaded: ${DATE}"
