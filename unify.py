@@ -14,10 +14,8 @@ Usage:
 
 import argparse
 import csv
-import json
 import logging
 import os
-import sys
 from collections import defaultdict
 from typing import Dict, List, Any, Tuple
 
@@ -146,6 +144,13 @@ def _is_empty(val) -> bool:
     return s == "" or s.lower() in ("", "none", "nan", "null")
 
 
+def _backfill_row(target: Dict[str, Any], donor: Dict[str, Any], fields: List[str]) -> None:
+    """Fill empty fields on target from donor without overwriting populated values."""
+    for field in fields:
+        if _is_empty(target.get(field)) and not _is_empty(donor.get(field)):
+            target[field] = donor[field]
+
+
 def load_all_sources(date_filter: str = "") -> List[Dict]:
     """Load all rows from all source CSVs in data/."""
     all_rows = []
@@ -205,21 +210,28 @@ def unify(rows: List[Dict], stats: bool = False) -> List[Dict]:
         # Rank sources by priority
         ranked_sources = sorted(by_source.keys(), key=_source_priority)
 
-        # Track which (gpu, count, region, pricing_type) combos are already covered
+        # Track kept rows so lower-priority duplicates can enrich the retained winner.
         covered_gpu_combos = set()
-        # Track which exact instance_types are already covered
         covered_instances = set()
+        kept_by_instance = defaultdict(list)
+        kept_by_gpu = defaultdict(list)
+        has_primary_source = False
 
         for source in ranked_sources:
             source_rows = by_source[source]
 
-            if not covered_gpu_combos:
+            if not has_primary_source:
                 # Best source — keep ALL its rows
                 unified.extend(source_rows)
                 for r in source_rows:
-                    covered_instances.add(_make_key(r, DEDUP_KEY_INSTANCE))
+                    inst_key = _make_key(r, DEDUP_KEY_INSTANCE)
+                    covered_instances.add(inst_key)
+                    kept_by_instance[inst_key].append(r)
                     if not _is_empty(r.get("gpu_name")):
-                        covered_gpu_combos.add(_make_key(r, DEDUP_KEY_GPU))
+                        gpu_key = _make_key(r, DEDUP_KEY_GPU)
+                        covered_gpu_combos.add(gpu_key)
+                        kept_by_gpu[gpu_key].append(r)
+                has_primary_source = True
             else:
                 # Lower-priority source — only add rows for NEW combos
                 for r in source_rows:
@@ -228,20 +240,29 @@ def unify(rows: List[Dict], stats: bool = False) -> List[Dict]:
 
                     # Skip if exact instance already covered
                     if inst_key in covered_instances:
+                        for winner in kept_by_instance.get(inst_key, []):
+                            _backfill_row(winner, r, BACKFILL_FIELDS)
                         total_dropped += 1
                         continue
 
                     # Skip if same GPU+region+pricing combo already covered
                     # (unless gpu_name is empty — inference/other pricing)
                     if not _is_empty(r.get("gpu_name")) and gpu_key in covered_gpu_combos:
+                        for winner in kept_by_gpu.get(gpu_key, []):
+                            _backfill_row(winner, r, BACKFILL_FIELDS)
                         total_dropped += 1
                         continue
 
                     # This is a new offering not in higher-priority sources — keep it
+                    if not _is_empty(r.get("gpu_name")) and gpu_key in kept_by_gpu:
+                        for winner in kept_by_gpu[gpu_key]:
+                            _backfill_row(r, winner, BACKFILL_FIELDS)
                     unified.append(r)
                     covered_instances.add(inst_key)
+                    kept_by_instance[inst_key].append(r)
                     if not _is_empty(r.get("gpu_name")):
                         covered_gpu_combos.add(gpu_key)
+                        kept_by_gpu[gpu_key].append(r)
 
     if stats:
         print(f"\n  Unification Statistics:")

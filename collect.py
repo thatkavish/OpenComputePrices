@@ -161,12 +161,35 @@ API_KEY_COLLECTORS = [
 ]
 
 
+def resolve_collector_names(args) -> list[str]:
+    """Resolve CLI selection flags into a concrete ordered list of collector names."""
+    if args.sources:
+        names = list(args.sources)
+        if args.browser:
+            names = [n for n in names if n in BROWSER_COLLECTORS]
+        elif args.no_auth_only:
+            names = [n for n in names if n in NO_AUTH_COLLECTORS]
+        elif args.no_browser:
+            names = [n for n in names if n not in BROWSER_COLLECTORS]
+    elif args.browser:
+        names = list(BROWSER_COLLECTORS)
+    elif args.no_auth_only:
+        names = list(NO_AUTH_COLLECTORS)
+    elif args.no_browser:
+        names = [n for n in COLLECTORS if n not in BROWSER_COLLECTORS]
+    else:
+        names = list(COLLECTORS.keys())
+
+    return [n for n in names if n not in args.skip]
+
+
 def main():
     parser = argparse.ArgumentParser(description="GPU Cloud Pricing Data Collector")
     parser.add_argument("sources", nargs="*", help="Specific sources to collect (default: all)")
     parser.add_argument("--list", action="store_true", help="List available collectors")
     parser.add_argument("--no-auth-only", action="store_true", help="Only run collectors that need no API key")
     parser.add_argument("--browser", action="store_true", help="Only run Playwright browser-based collectors")
+    parser.add_argument("--no-browser", action="store_true", help="Exclude Playwright browser-based collectors")
     parser.add_argument("--skip", nargs="*", default=[], help="Collectors to skip")
     parser.add_argument("--no-unify", action="store_true", help="Skip building the unified master database")
     args = parser.parse_args()
@@ -177,28 +200,23 @@ def main():
         print("-" * 65)
         for name, cls in COLLECTORS.items():
             c = cls()
-            auth = "API key" if c.requires_api_key else "None"
+            if c.requires_api_key:
+                auth = "API key"
+            elif c.api_key_env_var:
+                auth = "Optional"
+            else:
+                auth = "None"
             env = c.api_key_env_var or "-"
             ctype = "browser" if name in BROWSER_COLLECTORS else "scraper" if name in NO_AUTH_COLLECTORS else "api-key"
             print(f"{name:<17} {ctype:<12} {auth:<10} {env}")
         return
 
-    # Determine which collectors to run
-    if args.sources:
-        names = args.sources
-    elif args.browser:
-        names = BROWSER_COLLECTORS
-    elif args.no_auth_only:
-        names = NO_AUTH_COLLECTORS
-    else:
-        names = list(COLLECTORS.keys())
-
-    names = [n for n in names if n not in args.skip]
+    names = resolve_collector_names(args)
 
     now = datetime.now(timezone.utc)
     print(f"\n{'='*70}")
     print(f"  GPU Pricing Data Collection — {now.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-    print(f"  Sources: {', '.join(names)}")
+    print(f"  Sources: {', '.join(names) if names else '(none selected)'}")
     print(f"{'='*70}\n")
 
     results = {}
@@ -218,6 +236,10 @@ def main():
             results[name] = {"status": "skipped", "reason": f"missing {collector.api_key_env_var}", "rows": 0}
             continue
         runnable.append((name, collector))
+
+    if not names:
+        logger.info("No collectors selected for this run")
+        return
 
     def _run_one(name_collector):
         name, collector = name_collector
@@ -291,7 +313,8 @@ def main():
             logger.error(f"Unification failed: {e}", exc_info=True)
 
     # Exit with error if all failed
-    if results and all(r["status"] == "error" for r in results.values()):
+    terminal_statuses = [r["status"] for r in results.values()]
+    if terminal_statuses and all(status == "error" for status in terminal_statuses):
         sys.exit(1)
 
 

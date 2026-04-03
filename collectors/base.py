@@ -4,7 +4,6 @@ Base collector class. All source collectors inherit from this.
 
 import csv
 import glob
-import json
 import os
 import logging
 from datetime import datetime, timezone, timedelta
@@ -91,13 +90,9 @@ class BaseCollector:
 
     def run(self) -> int:
         """Collect and save. Returns row count."""
-        try:
-            rows = self.collect()
-            self.save(rows)
-            return len(rows)
-        except Exception as e:
-            logger.error(f"[{self.name}] Collection failed: {e}", exc_info=True)
-            return 0
+        rows = self.collect()
+        self.save(rows)
+        return len(rows)
 
 
 def prune_all_csvs(archive_path=None):

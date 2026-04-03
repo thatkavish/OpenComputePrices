@@ -67,11 +67,16 @@ jobs:
         run: |
           if [ -n "${{ github.event.inputs.sources }}" ]; then
             SOURCES=$(echo "${{ github.event.inputs.sources }}" | tr ',' ' ')
-            python collect.py $SOURCES
+            if [ "${{ github.event.inputs.no_auth_only }}" = "true" ]; then
+              python collect.py --no-auth-only $SOURCES
+            else
+              python collect.py --no-browser $SOURCES
+            fi
+          elif [ "${{ github.event.inputs.no_auth_only }}" = "true" ]; then
+            python collect.py --no-auth-only
           else
             # Run all non-browser collectors (API + static scrapers + API-key)
-            python collect.py --no-auth-only
-            python collect.py shadeform runpod vastai lambda gcp primeintellect datacrunch
+            python collect.py --no-browser
           fi
 
       - name: Upload data to release
@@ -141,7 +146,13 @@ jobs:
           python -m playwright install chromium --with-deps
 
       - name: Run browser-based collectors
-        run: python collect.py --browser
+        run: |
+          if [ -n "${{ github.event.inputs.sources }}" ]; then
+            SOURCES=$(echo "${{ github.event.inputs.sources }}" | tr ',' ' ')
+            python collect.py --browser $SOURCES
+          else
+            python collect.py --browser
+          fi
 
       - name: Upload data to release
         env:

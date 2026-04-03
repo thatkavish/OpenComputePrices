@@ -9,7 +9,7 @@ import csv
 import io
 import json
 import logging
-import subprocess
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any
 
@@ -101,11 +101,13 @@ def _get_gpu_family(instance_type: str) -> str:
 
 
 def _fetch_json(url: str) -> dict:
-    result = subprocess.run(
-        ["curl", "-s", "--compressed", "--max-time", "120", url],
-        capture_output=True, text=True, timeout=150
-    )
-    return json.loads(result.stdout)
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip",
+        "User-Agent": "OpenComputePrices/1.0",
+    })
+    with urllib.request.urlopen(req, timeout=150) as resp:
+        return json.loads(resp.read().decode())
 
 
 class AWSCollector(BaseCollector):
@@ -147,30 +149,31 @@ class AWSCollector(BaseCollector):
 
     def _fetch_region(self, region: str) -> List[Dict[str, Any]]:
         url = f"{BASE_URL}/offers/v1.0/aws/AmazonEC2/current/{region}/index.csv"
-
-        awk_parts = []
-        for f in GPU_FAMILIES:
-            escaped = f.replace(".", "\\.")
-            awk_parts.append(f'"{escaped}')
-        awk_pattern = "|".join(awk_parts)
-
-        cmd = (
-            f'curl -s --compressed --max-time 300 "{url}" | '
-            f"awk 'NR==6{{print}} NR>6 && /({awk_pattern})/'"
-        )
-
         try:
-            result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, timeout=360
-            )
-        except subprocess.TimeoutExpired:
+            req = urllib.request.Request(url, headers={
+                "Accept": "text/csv",
+                "Accept-Encoding": "gzip",
+                "User-Agent": "OpenComputePrices/1.0",
+            })
+            with urllib.request.urlopen(req, timeout=360) as resp:
+                text = resp.read().decode("utf-8", errors="replace")
+        except Exception:
             return []
 
-        lines = result.stdout.strip().split("\n")
-        if len(lines) < 2:
+        lines = text.splitlines()
+        if len(lines) < 7:
             return []
 
-        reader = csv.reader(io.StringIO(lines[0]))
+        header_line = lines[5]
+        data_lines = []
+        for line in lines[6:]:
+            if any(family in line for family in GPU_FAMILIES):
+                data_lines.append(line)
+
+        if not data_lines:
+            return []
+
+        reader = csv.reader(io.StringIO(header_line))
         try:
             headers = next(reader)
         except StopIteration:
@@ -181,7 +184,7 @@ class AWSCollector(BaseCollector):
             col[h.strip()] = i
 
         rows = []
-        for line in lines[1:]:
+        for line in data_lines:
             try:
                 fields = next(csv.reader(io.StringIO(line)))
             except Exception:

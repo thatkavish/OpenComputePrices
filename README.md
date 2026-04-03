@@ -177,6 +177,9 @@ mkdir -p data && tar xzf data.tar.gz -C data/
 # Run all no-auth API + scraper collectors (no Playwright needed)
 python collect.py --no-auth-only
 
+# Run all non-browser collectors, including API-key collectors when configured
+python collect.py --no-browser
+
 # Run specific collectors
 python collect.py aws azure openrouter
 
@@ -200,6 +203,10 @@ python unify.py --stats
 
 # Inspect the dataset
 python summary.py
+
+# Run local checks
+PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall backfill_skypilot.py collect.py collectors rebuild_archive.py schema.py summary.py unify.py
+python -m unittest discover -s tests -v
 ```
 
 Core collectors use only the Python standard library. Browser-based collectors additionally require [Playwright](https://playwright.dev/python/) — see `requirements.txt`.
@@ -210,6 +217,12 @@ The workflow at `.github/workflows/collect.yml` runs every 12 hours at 00:00 and
 
 1. **`collect-api`** — Runs all API + scraper collectors (skips API-key ones if secrets not configured)
 2. **`collect-browser`** — Runs Playwright browser-based collectors (installs Chromium)
+
+Manual workflow runs respect the `sources` input across both jobs:
+
+- The API job runs only the requested non-browser sources
+- The browser job runs only the requested browser sources
+- `no_auth_only=true` skips browser and API-key collectors entirely
 
 Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job downloads the latest data archive, runs collectors in parallel, prunes old data, and uploads the updated archive.
 
@@ -233,6 +246,11 @@ Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job
    - `TENSORDOCK_API_KEY` — [Get free key](https://dashboard.tensordock.com/developers) (optional)
 3. Enable GitHub Actions in your fork
 4. Optionally trigger manually via Actions → "Collect GPU Pricing Data" → "Run workflow"
+
+## Development
+
+- Project metadata lives in [`pyproject.toml`](pyproject.toml)
+- CI runs in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 
 ## File Structure
 
