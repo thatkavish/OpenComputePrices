@@ -254,6 +254,8 @@ Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job
 
 - Project metadata lives in [`pyproject.toml`](pyproject.toml)
 - CI runs in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+- Dependabot config lives in [`.github/dependabot.yml`](.github/dependabot.yml)
+- Code scanning runs in [`.github/workflows/codeql.yml`](.github/workflows/codeql.yml)
 
 ## File Structure
 
