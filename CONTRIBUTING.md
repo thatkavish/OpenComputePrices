@@ -13,7 +13,7 @@ Thanks for helping improve OpenComputePrices.
 Run these before opening a pull request:
 
 ```bash
-PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall backfill_skypilot.py collect.py collectors rebuild_archive.py schema.py summary.py unify.py
+PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall backfill_skypilot.py collect.py collectors release_data.py rebuild_archive.py schema.py summary.py unify.py
 python -m unittest discover -s tests -v
 ```
 

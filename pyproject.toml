@@ -30,6 +30,7 @@ dependencies = []
 py-modules = [
   "backfill_skypilot",
   "collect",
+  "release_data",
   "rebuild_archive",
   "schema",
   "summary",

@@ -58,12 +58,13 @@ class RunPodCollector(BaseCollector):
         payload = json.dumps({"query": QUERY}).encode("utf-8")
         try:
             req = urllib.request.Request(
-                f"{API_URL}?api_key={api_key}",
+                API_URL,
                 data=payload,
                 method="POST",
                 headers={
                     "Content-Type": "application/json",
                     "Accept": "application/json",
+                    "Authorization": f"Bearer {api_key}",
                 },
             )
             with urllib.request.urlopen(req, timeout=60) as resp:

@@ -17,7 +17,7 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   DATA_TAG: latest-data
@@ -28,10 +28,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: .env
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Download existing data from release
         env:
@@ -39,17 +46,12 @@ jobs:
         run: |
           mkdir -p data
           if gh release download "$DATA_TAG" -p 'data.tar.gz' -D /tmp/ 2>/dev/null; then
-            tar xzf /tmp/data.tar.gz -C data/
+            python release_data.py extract /tmp/data.tar.gz data
             echo "Downloaded existing data from release"
             ls -lh data/*.csv 2>/dev/null | wc -l | xargs -I{} echo "  {} CSV files"
           else
             echo "No existing release found — starting fresh"
           fi
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -64,13 +66,13 @@ jobs:
           TENSORDOCK_API_KEY: ${{ secrets.TENSORDOCK_API_KEY }}
           PRIMEINTELLECT_API_KEY: ${{ secrets.PRIMEINTELLECT_API_KEY }}
           DATACRUNCH_API_KEY: ${{ secrets.DATACRUNCH_API_KEY }}
+          COLLECT_SOURCES_CSV: ${{ github.event.inputs.sources }}
         run: |
-          if [ -n "${{ github.event.inputs.sources }}" ]; then
-            SOURCES=$(echo "${{ github.event.inputs.sources }}" | tr ',' ' ')
+          if [ -n "$COLLECT_SOURCES_CSV" ]; then
             if [ "${{ github.event.inputs.no_auth_only }}" = "true" ]; then
-              python collect.py --no-auth-only $SOURCES
+              python collect.py --no-auth-only --sources-csv "$COLLECT_SOURCES_CSV"
             else
-              python collect.py --no-browser $SOURCES
+              python collect.py --no-browser --sources-csv "$COLLECT_SOURCES_CSV"
             fi
           elif [ "${{ github.event.inputs.no_auth_only }}" = "true" ]; then
             python collect.py --no-auth-only
@@ -121,10 +123,17 @@ jobs:
     environment: .env
     needs: collect-api
     if: github.event.inputs.no_auth_only != 'true'
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Download data from release
         env:
@@ -132,13 +141,8 @@ jobs:
         run: |
           mkdir -p data
           gh release download "$DATA_TAG" -p 'data.tar.gz' -D /tmp/
-          tar xzf /tmp/data.tar.gz -C data/
+          python release_data.py extract /tmp/data.tar.gz data
           echo "Downloaded data from release"
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
 
       - name: Install dependencies
         run: |
@@ -146,10 +150,11 @@ jobs:
           python -m playwright install chromium --with-deps
 
       - name: Run browser-based collectors
+        env:
+          COLLECT_SOURCES_CSV: ${{ github.event.inputs.sources }}
         run: |
-          if [ -n "${{ github.event.inputs.sources }}" ]; then
-            SOURCES=$(echo "${{ github.event.inputs.sources }}" | tr ',' ' ')
-            python collect.py --browser $SOURCES
+          if [ -n "$COLLECT_SOURCES_CSV" ]; then
+            python collect.py --browser --sources-csv "$COLLECT_SOURCES_CSV"
           else
             python collect.py --browser
           fi

@@ -15,10 +15,19 @@ class _BoomCollector:
         raise RuntimeError("boom")
 
 
+class _ApiKeyCollector:
+    requires_api_key = True
+    api_key_env_var = "FAKE_API_KEY"
+
+    def get_api_key(self):
+        return None
+
+
 class CollectTests(unittest.TestCase):
     def test_resolve_collector_names_supports_browser_and_non_browser_filters(self):
         args = argparse.Namespace(
             sources=["aws", "coreweave", "runpod"],
+            sources_csv="",
             browser=False,
             no_auth_only=False,
             no_browser=True,
@@ -34,6 +43,17 @@ class CollectTests(unittest.TestCase):
         args.no_auth_only = True
         self.assertEqual(collect.resolve_collector_names(args), ["aws"])
 
+    def test_sources_csv_is_merged_with_positional_sources(self):
+        args = argparse.Namespace(
+            sources=["coreweave"],
+            sources_csv="aws, azure ,",
+            browser=False,
+            no_auth_only=False,
+            no_browser=False,
+            skip=[],
+        )
+        self.assertEqual(collect.resolve_collector_names(args), ["aws", "azure", "coreweave"])
+
     def test_main_exits_non_zero_when_all_collectors_fail(self):
         with mock.patch.dict(collect.COLLECTORS, {"boom": _BoomCollector}, clear=True), \
              mock.patch.object(collect, "NO_AUTH_COLLECTORS", []), \
@@ -45,3 +65,12 @@ class CollectTests(unittest.TestCase):
                 collect.main()
 
         self.assertEqual(exc.exception.code, 1)
+
+    def test_required_api_key_collectors_are_skipped_without_secret(self):
+        with mock.patch.dict(collect.COLLECTORS, {"secured": _ApiKeyCollector}, clear=True), \
+             mock.patch.object(collect, "NO_AUTH_COLLECTORS", []), \
+             mock.patch.object(collect, "BROWSER_COLLECTORS", []), \
+             mock.patch.object(collect, "API_KEY_COLLECTORS", ["secured"]), \
+             mock.patch("sys.argv", ["collect.py", "secured", "--no-unify"]), \
+             redirect_stdout(io.StringIO()):
+            collect.main()

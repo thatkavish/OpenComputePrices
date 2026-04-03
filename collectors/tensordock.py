@@ -4,7 +4,7 @@ TensorDock GPU pricing collector.
 Uses the TensorDock v2 API:
   - GET /api/v2/locations  — locations with GPU offerings and pricing
   - GET /api/v2/hostnodes  — individual hostnodes with live availability
-No authentication required for these discovery endpoints.
+Requires API key (TENSORDOCK_API_KEY env var).
 """
 
 import json
@@ -56,28 +56,33 @@ def _parse_gpu_name(v0name: str, display_name: str) -> tuple:
 
 class TensorDockCollector(BaseCollector):
     name = "tensordock"
-    requires_api_key = False  # locations works without auth; hostnodes needs key
+    requires_api_key = True
     api_key_env_var = "TENSORDOCK_API_KEY"
 
     def collect(self) -> List[Dict[str, Any]]:
+        api_key = self.get_api_key()
+        if not api_key:
+            return []
+
         logger.info("[tensordock] Fetching GPU pricing from v2 API")
 
         rows = []
 
         # Try locations endpoint first (aggregated view)
-        rows.extend(self._fetch_locations())
+        rows.extend(self._fetch_locations(api_key))
 
         # Also try hostnodes for live per-node availability
-        rows.extend(self._fetch_hostnodes())
+        rows.extend(self._fetch_hostnodes(api_key))
 
         logger.info(f"[tensordock] Total: {len(rows)} rows")
         return rows
 
-    def _fetch_locations(self) -> List[Dict[str, Any]]:
+    def _fetch_locations(self, api_key: str) -> List[Dict[str, Any]]:
         """Fetch from /api/v2/locations — aggregated GPU offerings by location."""
         try:
             req = urllib.request.Request(LOCATIONS_URL, headers={
                 "Accept": "application/json",
+                "Authorization": f"Bearer {api_key}",
                 "User-Agent": "OpenComputePrices/1.0",
             })
             with urllib.request.urlopen(req, timeout=60) as resp:
@@ -143,15 +148,13 @@ class TensorDockCollector(BaseCollector):
         logger.info(f"[tensordock] locations: {len(rows)} rows from {len(locations)} locations")
         return rows
 
-    def _fetch_hostnodes(self) -> List[Dict[str, Any]]:
-        """Fetch from /api/v2/hostnodes — per-node live availability. Requires API key."""
-        api_key = self.get_api_key()
+    def _fetch_hostnodes(self, api_key: str) -> List[Dict[str, Any]]:
+        """Fetch from /api/v2/hostnodes — per-node live availability."""
         headers = {
             "Accept": "application/json",
+            "Authorization": f"Bearer {api_key}",
             "User-Agent": "OpenComputePrices/1.0",
         }
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
         try:
             req = urllib.request.Request(HOSTNODES_URL, headers=headers)
             with urllib.request.urlopen(req, timeout=60) as resp:

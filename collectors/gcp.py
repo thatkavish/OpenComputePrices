@@ -100,14 +100,17 @@ class GCPCollector(BaseCollector):
 
         while True:
             page += 1
-            params = {"key": api_key, "pageSize": 5000}
+            params = {"pageSize": 5000}
             if page_token:
                 params["pageToken"] = page_token
 
             url = f"{API_BASE}?{urllib.parse.urlencode(params)}"
 
             try:
-                req = urllib.request.Request(url, headers={"Accept": "application/json"})
+                req = urllib.request.Request(url, headers={
+                    "Accept": "application/json",
+                    "X-Goog-Api-Key": api_key,
+                })
                 with urllib.request.urlopen(req, timeout=120) as resp:
                     data = json.loads(resp.read().decode())
             except Exception as e:

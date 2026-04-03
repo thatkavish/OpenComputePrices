@@ -163,8 +163,15 @@ API_KEY_COLLECTORS = [
 
 def resolve_collector_names(args) -> list[str]:
     """Resolve CLI selection flags into a concrete ordered list of collector names."""
+    requested_sources = []
+    if args.sources_csv:
+        requested_sources.extend(part.strip() for part in args.sources_csv.split(","))
     if args.sources:
-        names = list(args.sources)
+        requested_sources.extend(args.sources)
+    requested_sources = [name for name in requested_sources if name]
+
+    if requested_sources:
+        names = list(requested_sources)
         if args.browser:
             names = [n for n in names if n in BROWSER_COLLECTORS]
         elif args.no_auth_only:
@@ -186,6 +193,7 @@ def resolve_collector_names(args) -> list[str]:
 def main():
     parser = argparse.ArgumentParser(description="GPU Cloud Pricing Data Collector")
     parser.add_argument("sources", nargs="*", help="Specific sources to collect (default: all)")
+    parser.add_argument("--sources-csv", default="", help="Comma-separated sources string for automation/workflows")
     parser.add_argument("--list", action="store_true", help="List available collectors")
     parser.add_argument("--no-auth-only", action="store_true", help="Only run collectors that need no API key")
     parser.add_argument("--browser", action="store_true", help="Only run Playwright browser-based collectors")

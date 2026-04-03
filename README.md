@@ -109,7 +109,6 @@ The databases are automatically separated during the unification step (`unify.py
 | **Azure**        | All GPU VMs (NC/ND/NV series)            | On-demand + spot + reserved, all regions                 |
 | **Oracle Cloud** | GPU instances (H100, A100, MI300X, etc.) | Uniform cross-region pricing                             |
 | **OpenRouter**   | 300+ inference models, 60+ providers     | Per-token pricing (inference, not GPU-hour)              |
-| **TensorDock**   | GPU marketplace (locations + hostnodes)  | Per-GPU hourly pricing with live availability            |
 | **SkyPilot**     | 15 clouds via open-source CSVs           | AWS, GCP, Azure, Lambda, RunPod, Vast, OCI, Nebius, etc. |
 | **Akash**        | 18 GPU models, decentralized marketplace | Min/max/avg/weighted pricing + availability              |
 | **CUDO Compute** | GPU machine types across data centers    | Per-GPU hourly pricing per datacenter                    |
@@ -157,6 +156,7 @@ These collectors use headless Chromium to render JS-heavy pricing pages. Require
 
 | Source              | Coverage                                     | Env Var                  |
 | ------------------- | -------------------------------------------- | ------------------------ |
+| **TensorDock**      | GPU marketplace (locations + hostnodes)      | `TENSORDOCK_API_KEY`     |
 | **Shadeform**       | 21+ providers via single API                 | `SHADEFORM_API_KEY`      |
 | **RunPod**          | 30+ GPU types, spot + committed + bid        | `RUNPOD_API_KEY`         |
 | **Vast.ai**         | 17K+ GPUs, on-demand + interruptible         | `VASTAI_API_KEY`         |
@@ -183,6 +183,9 @@ python collect.py --no-browser
 # Run specific collectors
 python collect.py aws azure openrouter
 
+# Run a comma-separated list safely (useful in automation)
+python collect.py --sources-csv "aws,azure,openrouter"
+
 # Run browser-based collectors (requires Playwright)
 pip install playwright && python -m playwright install chromium
 python collect.py --browser
@@ -205,7 +208,7 @@ python unify.py --stats
 python summary.py
 
 # Run local checks
-PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall backfill_skypilot.py collect.py collectors rebuild_archive.py schema.py summary.py unify.py
+PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall backfill_skypilot.py collect.py collectors release_data.py rebuild_archive.py schema.py summary.py unify.py
 python -m unittest discover -s tests -v
 ```
 
@@ -236,6 +239,7 @@ Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job
 
 1. Fork/clone this repo
 2. Add API keys as [environment secrets](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions) under an environment named `.env`, or as repository secrets:
+   - `TENSORDOCK_API_KEY` — [Get free key](https://dashboard.tensordock.com/developers)
    - `SHADEFORM_API_KEY` — [Get free key](https://shadeform.ai)
    - `RUNPOD_API_KEY` — [Get free key](https://runpod.io)
    - `VASTAI_API_KEY` — [Get free key](https://vast.ai)
@@ -243,7 +247,6 @@ Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job
    - `GCP_API_KEY` — [Get free key](https://console.cloud.google.com/apis/credentials)
    - `PRIMEINTELLECT_API_KEY` — [Get free key](https://docs.primeintellect.ai)
    - `DATACRUNCH_API_KEY` — [Get free key](https://datacrunch.io)
-   - `TENSORDOCK_API_KEY` — [Get free key](https://dashboard.tensordock.com/developers) (optional)
 3. Enable GitHub Actions in your fork
 4. Optionally trigger manually via Actions → "Collect GPU Pricing Data" → "Run workflow"
 
