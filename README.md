@@ -6,7 +6,7 @@ Collects pricing data from **42 collectors across 65+ GPU cloud providers** — 
 
 ## Data Schema
 
-Every row in the dataset contains 31 columns:
+Every row in the dataset contains 33 columns:
 
 | Column               | Description                                                   |
 | -------------------- | ------------------------------------------------------------- |
@@ -33,6 +33,8 @@ Every row in the dataset contains 31 columns:
 | `commitment_period`  | 1yr, 3yr, 1wk, etc.                                           |
 | `price_per_hour`     | Instance-level hourly price (USD)                             |
 | `price_per_gpu_hour` | Per-GPU hourly price (USD)                                    |
+| `upfront_price`      | One-time upfront contract price in USD (reserved/committed)   |
+| `upfront_price_per_gpu` | Per-GPU upfront contract price in USD                      |
 | `currency`           | ISO currency code (usually "USD")                             |
 | `price_unit`         | What the raw price was in: "hour", "token", etc.              |
 | `available`          | Whether this offering is currently available                  |
@@ -105,7 +107,7 @@ The databases are automatically separated during the unification step (`unify.py
 
 | Source           | Coverage                                 | Notes                                                    |
 | ---------------- | ---------------------------------------- | -------------------------------------------------------- |
-| **AWS**          | All GPU EC2 instances, 27 regions        | On-demand + reserved pricing for p2–p6, g3–g6, trn, inf  |
+| **AWS**          | All GPU EC2 instances, 27 regions        | On-demand + reserved pricing for p2–p6, g3–g6, trn, inf, including upfront RI components |
 | **Azure**        | All GPU VMs (NC/ND/NV series)            | On-demand + spot + reserved, all regions                 |
 | **Oracle Cloud** | GPU instances (H100, A100, MI300X, etc.) | Uniform cross-region pricing                             |
 | **OpenRouter**   | 300+ inference models, 60+ providers     | Per-token pricing (inference, not GPU-hour)              |

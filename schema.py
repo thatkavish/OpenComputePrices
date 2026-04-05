@@ -43,6 +43,8 @@ COLUMNS = [
     "commitment_period",      # e.g. "1yr", "3yr", "1wk", "" for on-demand/spot
     "price_per_hour",         # Instance-level hourly price (float, USD)
     "price_per_gpu_hour",     # Per-GPU hourly price (float, USD)
+    "upfront_price",          # One-time upfront contract price (float, USD)
+    "upfront_price_per_gpu",  # Per-GPU upfront contract price (float, USD)
     "currency",               # ISO currency code (usually "USD")
     "price_unit",             # "hour", "second", "month" — what the raw price was in
 

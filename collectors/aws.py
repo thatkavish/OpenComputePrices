@@ -92,6 +92,20 @@ KNOWN_GPU_COUNTS = {
     "dl1.24xlarge": 8,
 }
 
+AWS_OFFER_KEY_FIELDS = [
+    "Region Code",
+    "Location",
+    "Instance Type",
+    "TermType",
+    "Operating System",
+    "Tenancy",
+    "Pre Installed S/W",
+    "LeaseContractLength",
+    "PurchaseOption",
+    "OfferingClass",
+    "CapacityStatus",
+]
+
 
 def _get_gpu_family(instance_type: str) -> str:
     for fam in sorted(INSTANCE_GPU_MAP.keys(), key=len, reverse=True):
@@ -183,7 +197,7 @@ class AWSCollector(BaseCollector):
         for i, h in enumerate(headers):
             col[h.strip()] = i
 
-        rows = []
+        offers = {}
         for line in data_lines:
             try:
                 fields = next(csv.reader(io.StringIO(line)))
@@ -206,78 +220,104 @@ class AWSCollector(BaseCollector):
             unit = _f("Unit")
             product_family = _f("Product Family")
 
-            if unit != "Hrs":
-                continue
             if "Compute Instance" not in product_family:
+                continue
+            if unit not in ("Hrs", "Quantity"):
                 continue
 
             try:
-                price = float(_f("PricePerUnit"))
+                component_price = float(_f("PricePerUnit"))
             except (ValueError, TypeError):
                 continue
-            if price <= 0:
+            if component_price < 0:
                 continue
 
-            gpu_info = INSTANCE_GPU_MAP.get(fam, {})
+            offer_key = tuple(_f(name) for name in AWS_OFFER_KEY_FIELDS)
+            offer = offers.setdefault(offer_key, {
+                "instance_type": instance_type,
+                "family": fam,
+                "term_type": term_type,
+                "region": _f("Region Code") or region,
+                "location": _f("Location"),
+                "capacity_status": _f("CapacityStatus"),
+                "effective_date": _f("EffectiveDate"),
+                "os": _f("Operating System"),
+                "tenancy": _f("Tenancy"),
+                "pre_installed_sw": _f("Pre Installed S/W"),
+                "lease_length": _f("LeaseContractLength"),
+                "purchase_option": _f("PurchaseOption"),
+                "offering_class": _f("OfferingClass"),
+                "vcpus": _f("vCPU"),
+                "memory": _f("Memory"),
+                "storage": _f("Storage") if "Storage" in col else "",
+                "network": _f("Network Performance") if "Network Performance" in col else "",
+                "gpu": _f("GPU"),
+                "hourly_price": 0.0,
+                "upfront_price": 0.0,
+            })
+
+            if unit == "Hrs":
+                offer["hourly_price"] += component_price
+            else:
+                offer["upfront_price"] += component_price
+
+        rows = []
+        for offer in offers.values():
+            price = offer["hourly_price"]
+            upfront_price = offer["upfront_price"]
+            if price <= 0 and upfront_price <= 0:
+                continue
+
+            gpu_info = INSTANCE_GPU_MAP.get(offer["family"], {})
             gpu_name = gpu_info.get("gpu", "Unknown")
 
             try:
-                gpu_count = int(_f("GPU"))
+                gpu_count = int(offer["gpu"])
             except (ValueError, TypeError):
-                gpu_count = KNOWN_GPU_COUNTS.get(instance_type, 0)
+                gpu_count = KNOWN_GPU_COUNTS.get(offer["instance_type"], 0)
 
             price_per_gpu = price / gpu_count if gpu_count > 0 else price
+            upfront_price_per_gpu = upfront_price / gpu_count if gpu_count > 0 else upfront_price
 
-            os_field = _f("Operating System")
-            tenancy = _f("Tenancy")
-            pre_sw = _f("Pre Installed S/W")
-
-            pricing_type = "on_demand" if term_type == "OnDemand" else "reserved"
-
-            lease_length = _f("LeaseContractLength")  # e.g. "1yr", "3yr"
-            purchase_option = _f("PurchaseOption")      # e.g. "No Upfront", "All Upfront", "Partial Upfront"
-            offering_class = _f("OfferingClass")        # e.g. "standard", "convertible"
-
-            vcpu_str = _f("vCPU")
-            mem_str = _f("Memory")
             ram_gb = ""
-            if mem_str:
+            if offer["memory"]:
                 try:
-                    ram_gb = float(mem_str.replace(" GiB", "").replace(",", "").strip())
+                    ram_gb = float(offer["memory"].replace(" GiB", "").replace(",", "").strip())
                 except (ValueError, TypeError):
                     ram_gb = ""
 
-            storage = _f("Storage") if "Storage" in col else ""
-            network = _f("Network Performance") if "Network Performance" in col else ""
+            pricing_type = "on_demand" if offer["term_type"] == "OnDemand" else "reserved"
 
             rows.append(self.make_row(
                 provider="aws",
-                instance_type=instance_type,
-                instance_family=fam,
+                instance_type=offer["instance_type"],
+                instance_family=offer["family"],
                 gpu_name=normalize_gpu_name(gpu_name),
                 gpu_variant=gpu_info.get("variant", ""),
                 gpu_memory_gb=gpu_info.get("mem", ""),
                 gpu_count=gpu_count,
-                vcpus=vcpu_str,
+                vcpus=offer["vcpus"],
                 ram_gb=ram_gb,
-                storage_desc=storage,
-                network_desc=network,
-                region=_f("Region Code") or region,
-                geo_group=infer_geo_group(region),
+                storage_desc=offer["storage"],
+                network_desc=offer["network"],
+                region=offer["region"],
+                geo_group=infer_geo_group(offer["region"]),
                 pricing_type=pricing_type,
-                commitment_period=lease_length,
+                commitment_period=offer["lease_length"],
                 price_per_hour=price,
                 price_per_gpu_hour=round(price_per_gpu, 6),
-                os=os_field,
-                tenancy=tenancy,
-                pre_installed_sw=pre_sw,
+                upfront_price=upfront_price,
+                upfront_price_per_gpu=round(upfront_price_per_gpu, 6),
+                os=offer["os"],
+                tenancy=offer["tenancy"],
+                pre_installed_sw=offer["pre_installed_sw"],
                 available=True,
                 raw_extra=json.dumps({
-                    "capacity_status": _f("CapacityStatus"),
-                    "effective_date": _f("EffectiveDate"),
-                    "location": _f("Location"),
-                    "purchase_option": purchase_option,
-                    "offering_class": offering_class,
+                    "capacity_status": offer["capacity_status"],
+                    "effective_date": offer["effective_date"],
+                    "location": offer["location"],
+                    "purchase_option": offer["purchase_option"],
+                    "offering_class": offer["offering_class"],
                 }, separators=(",", ":")),
             ))
 

@@ -132,13 +132,11 @@ def prune_all_csvs(archive_path=None):
 
         source = basename.replace(".csv", "")
 
-        # Dedup exact duplicate rows (same snapshot_ts + all fields)
+        # Dedup exact duplicate rows (same snapshot_ts + all canonical fields)
         seen = set()
         unique = []
         for row in rows:
-            key = (row.get("snapshot_ts", ""), row.get("provider", ""),
-                   row.get("instance_type", ""), row.get("pricing_type", ""),
-                   row.get("region", ""), row.get("price_per_hour", ""))
+            key = tuple(row.get(col, "") for col in COLUMNS)
             if key not in seen:
                 seen.add(key)
                 unique.append(row)
