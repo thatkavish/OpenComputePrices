@@ -210,7 +210,7 @@ python unify.py --stats
 python summary.py
 
 # Run local checks
-PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall backfill_skypilot.py collect.py collectors release_data.py rebuild_archive.py schema.py summary.py unify.py
+PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall collect.py collectors release_data.py schema.py summary.py unify.py
 python -m unittest discover -s tests -v
 ```
 
@@ -235,7 +235,7 @@ Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job
 
 - **Active window (90 days):** Per-source CSVs in `data/` keep both daily snapshots, capped at 90 days
 - **Archive:** Rows older than 90 days are compressed and uploaded as monthly archive assets in the same Release (e.g. `archive_2026-01.csv.gz`)
-- **Dedup:** Exact duplicate rows (same timestamp + instance + region + price) are removed
+- **Dedup:** Exact duplicate rows are removed during pruning
 
 ### Setup
 
@@ -265,7 +265,7 @@ Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job
 OpenComputePrices/
 ├── collect.py                  # Main entry point — runs collectors, builds unified DBs
 ├── unify.py                    # Merges per-source CSVs into deduplicated master DBs
-├── schema.py                   # Standardized 31-column schema & GPU name normalization
+├── schema.py                   # Standardized 33-column schema & GPU name normalization
 ├── summary.py                  # Quick dataset inspection tool
 ├── requirements.txt            # Playwright (optional for browser collectors)
 ├── collectors/

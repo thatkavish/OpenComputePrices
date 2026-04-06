@@ -25,11 +25,9 @@ jobs:
       - name: Compile Python files
         run: |
           PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall \
-            backfill_skypilot.py \
             collect.py \
             collectors \
             release_data.py \
-            rebuild_archive.py \
             schema.py \
             summary.py \
             unify.py
