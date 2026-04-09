@@ -1,10 +1,15 @@
 import argparse
+import csv
 import io
+import json
+import os
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
 
 import collect
+from schema import COLUMNS
 
 
 class _BoomCollector:
@@ -24,6 +29,30 @@ class _ApiKeyCollector:
 
 
 class CollectTests(unittest.TestCase):
+    @staticmethod
+    def _row(**overrides):
+        row = {col: "" for col in COLUMNS}
+        row.update({
+            "snapshot_date": "2099-01-01",
+            "snapshot_ts": "2099-01-01T00:00:00Z",
+            "source": "aws",
+            "provider": "aws",
+            "instance_type": "p5.48xlarge",
+            "instance_family": "p5",
+            "gpu_name": "H100",
+            "gpu_count": "8",
+            "region": "us-east-1",
+            "pricing_type": "on_demand",
+            "price_per_hour": "10.0",
+            "price_per_gpu_hour": "1.25",
+            "currency": "USD",
+            "price_unit": "hour",
+            "os": "Linux",
+            "available": "True",
+        })
+        row.update(overrides)
+        return row
+
     def test_resolve_collector_names_supports_browser_and_non_browser_filters(self):
         args = argparse.Namespace(
             sources=["aws", "coreweave", "runpod"],
@@ -74,3 +103,87 @@ class CollectTests(unittest.TestCase):
              mock.patch("sys.argv", ["collect.py", "secured", "--no-unify"]), \
              redirect_stdout(io.StringIO()):
             collect.main()
+
+    def test_finalize_only_runs_without_collectors(self):
+        with mock.patch.object(collect, "finalize_existing_data") as finalize_mock, \
+             mock.patch("sys.argv", ["collect.py", "--finalize-only"]), \
+             redirect_stdout(io.StringIO()):
+            collect.main()
+
+        finalize_mock.assert_called_once_with(skip_prune=False, no_unify=False)
+
+    def test_incremental_finalize_rebuilds_only_affected_snapshot_dates(self):
+        preserved_master_row = self._row(
+            snapshot_date="2098-12-31",
+            snapshot_ts="2098-12-31T00:00:00Z",
+            raw_extra='{"marker":"preserved"}',
+        )
+        old_shadeform_row = self._row(
+            source="shadeform",
+            snapshot_date="2099-01-01",
+            snapshot_ts="2099-01-01T00:00:00Z",
+            price_per_hour="12.0",
+            price_per_gpu_hour="1.5",
+            raw_extra='{"marker":"old-shadeform"}',
+        )
+        old_master_same_date = self._row(
+            source="shadeform",
+            snapshot_date="2099-01-01",
+            snapshot_ts="2099-01-01T00:00:00Z",
+            price_per_hour="12.0",
+            price_per_gpu_hour="1.5",
+            raw_extra='{"marker":"replace-me"}',
+        )
+        new_aws_row = self._row(
+            snapshot_date="2099-01-01",
+            snapshot_ts="2099-01-01T12:00:00Z",
+            price_per_hour="11.0",
+            price_per_gpu_hour="1.375",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            aws_path = os.path.join(tmpdir, "aws.csv")
+            with open(aws_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+                writer.writeheader()
+
+            baseline_size = os.path.getsize(aws_path)
+
+            with open(aws_path, "a", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+                writer.writerow(new_aws_row)
+
+            shadeform_path = os.path.join(tmpdir, "shadeform.csv")
+            with open(shadeform_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerow(old_shadeform_row)
+
+            master_path = os.path.join(tmpdir, "_master.csv")
+            with open(master_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerow(preserved_master_row)
+                writer.writerow(old_master_same_date)
+
+            with open(os.path.join(tmpdir, "_baseline_state.json"), "w", encoding="utf-8") as f:
+                json.dump(
+                    {"sources": {
+                        "aws.csv": {"size": baseline_size},
+                        "shadeform.csv": {"size": os.path.getsize(shadeform_path)},
+                    }},
+                    f,
+                )
+
+            with mock.patch("collectors.base.DATA_DIR", tmpdir):
+                collect.finalize_existing_data()
+
+            with open(master_path, newline="", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[0]["raw_extra"], '{"marker":"preserved"}')
+            self.assertEqual(rows[1]["source"], "aws")
+            self.assertEqual(rows[1]["price_per_hour"], "11.0")
+            self.assertEqual(rows[1]["snapshot_date"], "2099-01-01")
+            self.assertFalse(os.path.exists(os.path.join(tmpdir, "_baseline_state.json")))

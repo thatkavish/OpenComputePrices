@@ -28,8 +28,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: .env
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout repository
@@ -53,8 +51,24 @@ jobs:
             echo "No existing release found — starting fresh"
           fi
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Record baseline source offsets
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          data_dir = "data"
+          state = {"sources": {}}
+          if os.path.isdir(data_dir):
+              for fname in sorted(os.listdir(data_dir)):
+                  if not fname.endswith(".csv") or fname.startswith("_"):
+                      continue
+                  path = os.path.join(data_dir, fname)
+                  state["sources"][fname] = {"size": os.path.getsize(path)}
+
+          with open(os.path.join(data_dir, "_baseline_state.json"), "w", encoding="utf-8") as f:
+              json.dump(state, f, separators=(",", ":"), sort_keys=True)
+          PY
 
       - name: Run API and scraper collectors
         env:
@@ -70,51 +84,24 @@ jobs:
         run: |
           if [ -n "$COLLECT_SOURCES_CSV" ]; then
             if [ "${{ github.event.inputs.no_auth_only }}" = "true" ]; then
-              python collect.py --no-auth-only --sources-csv "$COLLECT_SOURCES_CSV"
+              python collect.py --no-auth-only --sources-csv "$COLLECT_SOURCES_CSV" --skip-prune --no-unify
             else
-              python collect.py --no-browser --sources-csv "$COLLECT_SOURCES_CSV"
+              python collect.py --no-browser --sources-csv "$COLLECT_SOURCES_CSV" --skip-prune --no-unify
             fi
           elif [ "${{ github.event.inputs.no_auth_only }}" = "true" ]; then
-            python collect.py --no-auth-only
+            python collect.py --no-auth-only --skip-prune --no-unify
           else
             # Run all non-browser collectors (API + static scrapers + API-key)
-            python collect.py --no-browser
+            python collect.py --no-browser --skip-prune --no-unify
           fi
 
-      - name: Upload data to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-          # Upload expired rows as a separate archive (if any were pruned)
-          if [ -f data/_expired.csv ] && [ -s data/_expired.csv ]; then
-            MONTH=$(date -u +%Y-%m)
-            gzip -c data/_expired.csv > "/tmp/archive_${MONTH}.csv.gz"
-            ARCH_SIZE=$(du -h "/tmp/archive_${MONTH}.csv.gz" | cut -f1)
-            echo "Uploading expired archive: ${ARCH_SIZE}"
-            if gh release view "$DATA_TAG" &>/dev/null; then
-              gh release upload "$DATA_TAG" "/tmp/archive_${MONTH}.csv.gz" --clobber
-            fi
-            rm data/_expired.csv
-          fi
-
-          # Package active data (exclude generated files)
-          ROW_COUNT=$(cat data/*.csv 2>/dev/null | grep -cv '^snapshot_date' || echo 0)
-          tar czf /tmp/data.tar.gz --exclude='_expired.csv' -C data/ .
-          SIZE=$(du -h /tmp/data.tar.gz | cut -f1)
-          echo "Data archive: ${SIZE} (${ROW_COUNT} rows)"
-
-          TITLE="GPU Pricing Data — $(date -u '+%Y-%m-%d %H:%M UTC')"
-          if gh release view "$DATA_TAG" &>/dev/null; then
-            gh release upload "$DATA_TAG" /tmp/data.tar.gz --clobber
-            gh release edit "$DATA_TAG" --title "${TITLE}" --notes "Last updated: ${DATE} — ${ROW_COUNT} rows"
-          else
-            gh release create "$DATA_TAG" /tmp/data.tar.gz \
-              --title "${TITLE}" \
-              --notes "Last updated: ${DATE} — ${ROW_COUNT} rows"
-          fi
-          echo "API collection uploaded: ${DATE}"
+      - name: Upload intermediate data artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-api
+          path: data
+          if-no-files-found: error
+          compression-level: 0
 
   # Job 2: Playwright browser-based scrapers (needs Chromium)
   collect-browser:
@@ -123,6 +110,53 @@ jobs:
     environment: .env
     needs: collect-api
     if: github.event.inputs.no_auth_only != 'true'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Download intermediate data artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: data-api
+          path: .
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+
+      - name: Run browser-based collectors
+        env:
+          COLLECT_SOURCES_CSV: ${{ github.event.inputs.sources }}
+        run: |
+          if [ -n "$COLLECT_SOURCES_CSV" ]; then
+            python collect.py --browser --sources-csv "$COLLECT_SOURCES_CSV" --skip-prune --no-unify
+          else
+            python collect.py --browser --skip-prune --no-unify
+          fi
+
+      - name: Upload intermediate browser data artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-browser
+          path: data
+          if-no-files-found: error
+          compression-level: 0
+
+  finalize-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs:
+      - collect-api
+      - collect-browser
+    if: always() && needs.collect-api.result == 'success'
     permissions:
       contents: write
 
@@ -135,29 +169,22 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Download data from release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p data
-          gh release download "$DATA_TAG" -p 'data.tar.gz' -D /tmp/
-          python release_data.py extract /tmp/data.tar.gz data
-          echo "Downloaded data from release"
+      - name: Download API data artifact
+        if: needs.collect-browser.result != 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: data-api
+          path: .
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          python -m playwright install chromium --with-deps
+      - name: Download browser data artifact
+        if: needs.collect-browser.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: data-browser
+          path: .
 
-      - name: Run browser-based collectors
-        env:
-          COLLECT_SOURCES_CSV: ${{ github.event.inputs.sources }}
-        run: |
-          if [ -n "$COLLECT_SOURCES_CSV" ]; then
-            python collect.py --browser --sources-csv "$COLLECT_SOURCES_CSV"
-          else
-            python collect.py --browser
-          fi
+      - name: Finalize data
+        run: python collect.py --finalize-only
 
       - name: Upload data to release
         env:
@@ -180,6 +207,12 @@ jobs:
           SIZE=$(du -h /tmp/data.tar.gz | cut -f1)
           echo "Data archive: ${SIZE} (${ROW_COUNT} rows)"
           TITLE="GPU Pricing Data — $(date -u '+%Y-%m-%d %H:%M UTC')"
-          gh release upload "$DATA_TAG" /tmp/data.tar.gz --clobber
-          gh release edit "$DATA_TAG" --title "${TITLE}" --notes "Last updated: ${DATE} — ${ROW_COUNT} rows"
-          echo "Browser collection uploaded: ${DATE}"
+          if gh release view "$DATA_TAG" &>/dev/null; then
+            gh release upload "$DATA_TAG" /tmp/data.tar.gz --clobber
+            gh release edit "$DATA_TAG" --title "${TITLE}" --notes "Last updated: ${DATE} — ${ROW_COUNT} rows"
+          else
+            gh release create "$DATA_TAG" /tmp/data.tar.gz \
+              --title "${TITLE}" \
+              --notes "Last updated: ${DATE} — ${ROW_COUNT} rows"
+          fi
+          echo "Finalized collection uploaded: ${DATE}"

@@ -9,12 +9,18 @@ Usage:
 """
 
 import argparse
+import csv
+import io
+import json
 import logging
 import os
 import sys
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+
+from schema import COLUMNS
 
 
 def _load_dotenv():
@@ -160,6 +166,8 @@ API_KEY_COLLECTORS = [
     "primeintellect", "datacrunch",
 ]
 
+BASELINE_STATE_FILENAME = "_baseline_state.json"
+
 
 def resolve_collector_names(args) -> list[str]:
     """Resolve CLI selection flags into a concrete ordered list of collector names."""
@@ -190,6 +198,369 @@ def resolve_collector_names(args) -> list[str]:
     return [n for n in names if n not in args.skip]
 
 
+def _baseline_state_path(data_dir: str) -> str:
+    return os.path.join(data_dir, BASELINE_STATE_FILENAME)
+
+
+def _load_baseline_state(data_dir: str) -> dict:
+    path = _baseline_state_path(data_dir)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning(f"Failed to load baseline state from {path}: {e}")
+        return {}
+
+
+def _cleanup_baseline_state(data_dir: str) -> None:
+    path = _baseline_state_path(data_dir)
+    if os.path.isfile(path):
+        try:
+            os.remove(path)
+        except OSError:
+            logger.warning(f"Failed to remove baseline state file: {path}")
+
+
+def _row_key(row: dict) -> tuple:
+    return tuple(row.get(col, "") for col in COLUMNS)
+
+
+def _dedupe_rows(rows: list[dict]) -> list[dict]:
+    seen = set()
+    unique = []
+    for row in rows:
+        key = _row_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(row)
+    return unique
+
+
+def _read_appended_rows(path: str, baseline_size: int) -> list[dict]:
+    if not os.path.isfile(path):
+        return []
+
+    current_size = os.path.getsize(path)
+    if current_size <= baseline_size:
+        return []
+
+    with open(path, "rb") as f:
+        f.seek(baseline_size)
+        chunk = f.read()
+
+    if not chunk.strip():
+        return []
+
+    text = chunk.decode("utf-8")
+    if baseline_size == 0:
+        reader = csv.DictReader(io.StringIO(text))
+    else:
+        reader = csv.DictReader(io.StringIO(text), fieldnames=COLUMNS)
+    return [row for row in reader if any(str(v).strip() for v in row.values())]
+
+
+def _replace_appended_rows(path: str, baseline_size: int, rows: list[dict]) -> None:
+    fd, tmp_path = tempfile.mkstemp(prefix="collect_tail_", suffix=".csv", dir=os.path.dirname(path) or None)
+    os.close(fd)
+    try:
+        if baseline_size > 0 and os.path.isfile(path):
+            with open(path, "rb") as src, open(tmp_path, "wb") as dst:
+                dst.write(src.read(baseline_size))
+            mode = "a"
+            write_header = False
+        else:
+            mode = "w"
+            write_header = True
+
+        with open(tmp_path, mode, newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+            if write_header:
+                writer.writeheader()
+            for row in rows:
+                writer.writerow(row)
+
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def _append_rows(path: str, rows: list[dict]) -> None:
+    if not rows:
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    file_exists = os.path.isfile(path) and os.path.getsize(path) > 0
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+        if not file_exists:
+            writer.writeheader()
+        for row in rows:
+                writer.writerow(row)
+
+
+def _load_source_rows_for_dates(data_dir: str, snapshot_dates: set[str]) -> list[dict]:
+    rows = []
+    if not snapshot_dates:
+        return rows
+
+    for fname in sorted(os.listdir(data_dir)):
+        if not fname.endswith(".csv") or fname.startswith("_"):
+            continue
+        path = os.path.join(data_dir, fname)
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get("snapshot_date", "") in snapshot_dates:
+                    row["_source_file"] = fname.replace(".csv", "")
+                    rows.append(row)
+    return rows
+
+
+def _first_snapshot_date(path: str) -> str:
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        return ""
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            return row.get("snapshot_date", "")
+    return ""
+
+
+def _prune_csv_by_cutoff(path: str, cutoff: str, collect_expired: bool = False) -> tuple[int, list[dict]]:
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        return 0, []
+
+    if _first_snapshot_date(path) >= cutoff:
+        return 0, []
+
+    fd, tmp_path = tempfile.mkstemp(prefix="collect_prune_", suffix=".csv", dir=os.path.dirname(path) or None)
+    os.close(fd)
+    removed = 0
+    expired_rows = []
+    try:
+        with open(path, newline="", encoding="utf-8") as src, open(tmp_path, "w", newline="", encoding="utf-8") as dst:
+            reader = csv.DictReader(src)
+            writer = csv.DictWriter(dst, fieldnames=COLUMNS, extrasaction="ignore")
+            writer.writeheader()
+            for row in reader:
+                if row.get("snapshot_date", "") < cutoff:
+                    removed += 1
+                    if collect_expired:
+                        expired_rows.append(row)
+                    continue
+                writer.writerow(row)
+
+        os.replace(tmp_path, path)
+        return removed, expired_rows
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def _rewrite_csv_excluding_dates_and_cutoff(path: str, cutoff: str, snapshot_dates: set[str]) -> int:
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        return 0
+
+    fd, tmp_path = tempfile.mkstemp(prefix="collect_replace_", suffix=".csv", dir=os.path.dirname(path) or None)
+    os.close(fd)
+    removed = 0
+    try:
+        with open(path, newline="", encoding="utf-8") as src, open(tmp_path, "w", newline="", encoding="utf-8") as dst:
+            reader = csv.DictReader(src)
+            writer = csv.DictWriter(dst, fieldnames=COLUMNS, extrasaction="ignore")
+            writer.writeheader()
+            for row in reader:
+                snapshot_date = row.get("snapshot_date", "")
+                if snapshot_date < cutoff or snapshot_date in snapshot_dates:
+                    removed += 1
+                    continue
+                writer.writerow(row)
+
+        os.replace(tmp_path, path)
+        return removed
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def _sort_master_rows(rows: list[dict]) -> list[dict]:
+    rows = list(rows)
+    rows.sort(key=lambda r: (
+        r.get("snapshot_date", ""),
+        r.get("provider", ""),
+        r.get("gpu_name", ""),
+        r.get("region", ""),
+        r.get("pricing_type", ""),
+        r.get("instance_type", ""),
+    ))
+    for row in rows:
+        row.pop("_source_file", None)
+    return rows
+
+
+def _sort_inference_rows(rows: list[dict]) -> list[dict]:
+    rows = list(rows)
+    rows.sort(key=lambda r: (
+        r.get("snapshot_date", ""),
+        r.get("provider", ""),
+        r.get("instance_type", ""),
+    ))
+    for row in rows:
+        row.pop("_source_file", None)
+    return rows
+
+
+def _incremental_finalize_existing_data(data_dir: str, no_unify: bool = False) -> bool:
+    baseline = _load_baseline_state(data_dir)
+    sources_state = baseline.get("sources", {})
+    if not sources_state:
+        return False
+
+    from collectors.base import RETENTION_DAYS
+    from datetime import timedelta
+    from unify import unify
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).strftime("%Y-%m-%d")
+    incremental_rows = []
+    touched_sources = 0
+    expired_rows = []
+    affected_dates = set()
+
+    for fname in sorted(os.listdir(data_dir)):
+        if not fname.endswith(".csv") or fname.startswith("_"):
+            continue
+        path = os.path.join(data_dir, fname)
+        baseline_size = int(sources_state.get(fname, {}).get("size", 0))
+        new_rows = _read_appended_rows(path, baseline_size)
+        if not new_rows:
+            continue
+
+        touched_sources += 1
+        unique_new_rows = _dedupe_rows(new_rows)
+        if len(unique_new_rows) != len(new_rows):
+            logger.info(f"[incremental] {fname}: deduped {len(new_rows) - len(unique_new_rows)} newly appended rows")
+            _replace_appended_rows(path, baseline_size, unique_new_rows)
+
+        removed, expired = _prune_csv_by_cutoff(path, cutoff, collect_expired=True)
+        if removed:
+            logger.info(f"[incremental] {fname}: pruned {removed} expired source rows")
+            expired_rows.extend(expired)
+        incremental_rows.extend(unique_new_rows)
+        affected_dates.update(row.get("snapshot_date", "") for row in unique_new_rows if row.get("snapshot_date"))
+
+    _cleanup_baseline_state(data_dir)
+
+    archive_path = os.path.join(data_dir, "_expired.csv")
+    if expired_rows:
+        with open(archive_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+            writer.writeheader()
+            for row in expired_rows:
+                writer.writerow(row)
+        logger.info(f"Incremental archive write: {len(expired_rows):,} expired rows → {archive_path}")
+    elif os.path.isfile(archive_path):
+        os.remove(archive_path)
+
+    if not incremental_rows:
+        logger.info("No newly appended source rows detected; skipping incremental finalization")
+        return False
+
+    logger.info(
+        f"Incremental finalization: {len(incremental_rows):,} new rows from {touched_sources} sources "
+        f"across {len(affected_dates)} snapshot date(s)"
+    )
+
+    if no_unify:
+        logger.info("Skipping unified master rebuild (--no-unify)")
+        return True
+
+    snapshot_rows = _load_source_rows_for_dates(data_dir, affected_dates)
+    gpu_rows = [r for r in snapshot_rows if r.get("pricing_type", "").lower() != "inference"]
+    inference_rows = [r for r in snapshot_rows if r.get("pricing_type", "").lower() == "inference"]
+    logger.info(
+        f"Incremental slice rebuild: {len(snapshot_rows):,} rows across affected dates "
+        f"({len(gpu_rows):,} GPU, {len(inference_rows):,} inference)"
+    )
+
+    master_path = os.path.join(data_dir, "_master.csv")
+    inference_path = os.path.join(data_dir, "_inference.csv")
+
+    removed_master = _rewrite_csv_excluding_dates_and_cutoff(master_path, cutoff, affected_dates)
+    removed_inference = _rewrite_csv_excluding_dates_and_cutoff(inference_path, cutoff, affected_dates)
+    if removed_master or removed_inference:
+        logger.info(
+            f"Rewrote generated outputs for affected dates: master={removed_master:,}, inference={removed_inference:,}"
+        )
+
+    unified_gpu = unify(gpu_rows, stats=False) if gpu_rows else []
+    if unified_gpu:
+        _append_rows(master_path, _sort_master_rows(unified_gpu))
+        logger.info(f"Incremental master append: {len(unified_gpu):,} rows → {master_path}")
+
+    unified_inference = unify(inference_rows, stats=False) if inference_rows else []
+    if unified_inference:
+        _append_rows(inference_path, _sort_inference_rows(unified_inference))
+        logger.info(f"Incremental inference append: {len(unified_inference):,} rows → {inference_path}")
+
+    return True
+
+
+def finalize_existing_data(skip_prune: bool = False, no_unify: bool = False) -> bool:
+    """Prune source CSVs and rebuild unified outputs from the current data directory."""
+    from collectors.base import DATA_DIR
+
+    if not os.path.isdir(DATA_DIR):
+        logger.info("No data directory found; skipping finalization")
+        return False
+
+    source_csvs = [
+        fname for fname in os.listdir(DATA_DIR)
+        if fname.endswith(".csv") and not fname.startswith("_")
+    ]
+    if not source_csvs:
+        logger.info("No source CSVs found; skipping finalization")
+        return False
+
+    if not skip_prune:
+        has_baseline_state = bool(_load_baseline_state(DATA_DIR).get("sources"))
+        if has_baseline_state:
+            return _incremental_finalize_existing_data(DATA_DIR, no_unify=no_unify)
+
+    if not skip_prune:
+        logger.info("Pruning CSVs (dedup + retention)...")
+        try:
+            from collectors.base import prune_all_csvs
+            archive_path = os.path.join(DATA_DIR, "_expired.csv")
+            prune_all_csvs(archive_path=archive_path)
+        except Exception as e:
+            logger.error(f"Pruning failed: {e}", exc_info=True)
+
+    if no_unify:
+        logger.info("Skipping unified master rebuild (--no-unify)")
+        return True
+
+    logger.info("Building unified master database...")
+    try:
+        from unify import load_all_sources, unify, save_master, save_inference, MASTER_PATH, INFERENCE_PATH
+        all_data = load_all_sources()
+        inference_rows = [r for r in all_data if r.get("pricing_type", "").lower() == "inference"]
+        gpu_rows = [r for r in all_data if r.get("pricing_type", "").lower() != "inference"]
+        logger.info(f"Separated: {len(gpu_rows):,} GPU cloud rows, {len(inference_rows):,} inference rows")
+        unified_gpu = unify(gpu_rows, stats=False)
+        save_master(unified_gpu)
+        if inference_rows:
+            unified_inference = unify(inference_rows, stats=False)
+            save_inference(unified_inference)
+            logger.info(f"Inference database: {len(unified_inference):,} rows → {INFERENCE_PATH}")
+    except Exception as e:
+        logger.error(f"Unification failed: {e}", exc_info=True)
+
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description="GPU Cloud Pricing Data Collector")
     parser.add_argument("sources", nargs="*", help="Specific sources to collect (default: all)")
@@ -199,7 +570,9 @@ def main():
     parser.add_argument("--browser", action="store_true", help="Only run Playwright browser-based collectors")
     parser.add_argument("--no-browser", action="store_true", help="Exclude Playwright browser-based collectors")
     parser.add_argument("--skip", nargs="*", default=[], help="Collectors to skip")
+    parser.add_argument("--skip-prune", action="store_true", help="Skip CSV prune/dedup retention pass")
     parser.add_argument("--no-unify", action="store_true", help="Skip building the unified master database")
+    parser.add_argument("--finalize-only", action="store_true", help="Skip collectors and only prune/unify existing data")
     args = parser.parse_args()
 
     if args.list:
@@ -217,6 +590,10 @@ def main():
             env = c.api_key_env_var or "-"
             ctype = "browser" if name in BROWSER_COLLECTORS else "scraper" if name in NO_AUTH_COLLECTORS else "api-key"
             print(f"{name:<17} {ctype:<12} {auth:<10} {env}")
+        return
+
+    if args.finalize_only:
+        finalize_existing_data(skip_prune=args.skip_prune, no_unify=args.no_unify)
         return
 
     names = resolve_collector_names(args)
@@ -289,36 +666,10 @@ def main():
     print(f"  {'TOTAL':<15} {'':10} {total_rows:>8}  {total_elapsed:.1f}s")
     print(f"{'='*70}\n")
 
-    # Prune CSVs: dedup exact duplicates, enforce 90-day retention
-    if total_rows > 0:
-        logger.info("Pruning CSVs (dedup + retention)...")
-        try:
-            from collectors.base import prune_all_csvs, DATA_DIR
-            archive_path = os.path.join(DATA_DIR, "_expired.csv")
-            prune_all_csvs(archive_path=archive_path)
-        except Exception as e:
-            logger.error(f"Pruning failed: {e}", exc_info=True)
-
-    # Build unified master database unless --no-unify
     if not args.no_unify and total_rows > 0:
-        logger.info("Building unified master database...")
-        try:
-            from unify import load_all_sources, unify, save_master, save_inference, MASTER_PATH, INFERENCE_PATH
-            all_data = load_all_sources()
-            # Separate inference rows from GPU cloud rows
-            inference_rows = [r for r in all_data if r.get("pricing_type", "").lower() == "inference"]
-            gpu_rows = [r for r in all_data if r.get("pricing_type", "").lower() != "inference"]
-            logger.info(f"Separated: {len(gpu_rows):,} GPU cloud rows, {len(inference_rows):,} inference rows")
-            # Unify and save GPU cloud data
-            unified_gpu = unify(gpu_rows, stats=False)
-            save_master(unified_gpu)
-            # Unify and save inference data
-            if inference_rows:
-                unified_inference = unify(inference_rows, stats=False)
-                save_inference(unified_inference)
-                logger.info(f"Inference database: {len(unified_inference):,} rows → {INFERENCE_PATH}")
-        except Exception as e:
-            logger.error(f"Unification failed: {e}", exc_info=True)
+        finalize_existing_data(skip_prune=args.skip_prune, no_unify=args.no_unify)
+    elif total_rows > 0 and not args.skip_prune:
+        finalize_existing_data(skip_prune=args.skip_prune, no_unify=args.no_unify)
 
     # Exit with error if all failed
     terminal_statuses = [r["status"] for r in results.values()]

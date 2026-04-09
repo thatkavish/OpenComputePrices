@@ -218,18 +218,19 @@ Core collectors use only the Python standard library. Browser-based collectors a
 
 ## GitHub Actions
 
-The workflow at `.github/workflows/collect.yml` runs every 12 hours at 00:00 and 12:00 UTC across two jobs:
+The workflow at `.github/workflows/collect.yml` runs every 12 hours at 00:00 and 12:00 UTC across three jobs:
 
-1. **`collect-api`** — Runs all API + scraper collectors (skips API-key ones if secrets not configured)
-2. **`collect-browser`** — Runs Playwright browser-based collectors (installs Chromium)
+1. **`collect-api`** — Runs all API + scraper collectors and stores intermediate source CSVs
+2. **`collect-browser`** — Runs Playwright browser-based collectors on top of the API artifact
+3. **`finalize-data`** — Prunes retained source CSVs, rebuilds only the affected snapshot-date unified slices once, and uploads the release
 
-Manual workflow runs respect the `sources` input across both jobs:
+Manual workflow runs respect the `sources` input across the collection jobs:
 
 - The API job runs only the requested non-browser sources
 - The browser job runs only the requested browser sources
 - `no_auth_only=true` skips browser and API-key collectors entirely
 
-Data is stored in [GitHub Releases](../../releases/tag/latest-data) — each job downloads the latest data archive, runs collectors in parallel, prunes old data, and uploads the updated archive.
+Data is stored in [GitHub Releases](../../releases/tag/latest-data) — the workflow downloads the latest archive once, collects source CSVs in stages, then incrementally re-finalizes only the snapshot dates touched by that run before uploading the updated archive.
 
 **Data lifecycle:**
 
