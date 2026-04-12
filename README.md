@@ -235,7 +235,7 @@ Data is stored in [GitHub Releases](../../releases/tag/latest-data) — the work
 **Data lifecycle:**
 
 - **Active window (90 days):** Per-source CSVs in `data/` keep both daily snapshots, capped at 90 days
-- **Archive:** Rows older than 90 days are compressed and uploaded as monthly archive assets in the same Release (e.g. `archive_2026-01.csv.gz`)
+- **Archive:** Rows older than 90 days are compressed by snapshot month and merged into monthly archive assets in the same Release (e.g. `archive_2026-01.csv.gz`)
 - **Dedup:** Exact duplicate rows are removed during pruning
 
 ### Setup

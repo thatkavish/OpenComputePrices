@@ -125,7 +125,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: data-api
-          path: .
+          path: data
 
       - name: Install dependencies
         run: |
@@ -174,14 +174,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: data-api
-          path: .
+          path: data
 
       - name: Download browser data artifact
         if: needs.collect-browser.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: data-browser
-          path: .
+          path: data
 
       - name: Finalize data
         run: python collect.py --finalize-only
@@ -194,11 +194,19 @@ jobs:
 
           # Upload expired rows as a separate archive (if any were pruned)
           if [ -f data/_expired.csv ] && [ -s data/_expired.csv ]; then
-            MONTH=$(date -u +%Y-%m)
-            gzip -c data/_expired.csv > "/tmp/archive_${MONTH}.csv.gz"
-            ARCH_SIZE=$(du -h "/tmp/archive_${MONTH}.csv.gz" | cut -f1)
-            echo "Uploading expired archive: ${ARCH_SIZE}"
-            gh release upload "$DATA_TAG" "/tmp/archive_${MONTH}.csv.gz" --clobber
+            mkdir -p /tmp/expired-archives /tmp/existing-archives
+            python release_data.py split-expired data/_expired.csv /tmp/expired-archives
+            for ARCHIVE in /tmp/expired-archives/archive_*.csv.gz; do
+              [ -e "$ARCHIVE" ] || continue
+              BASENAME=$(basename "$ARCHIVE")
+              EXISTING="/tmp/existing-archives/${BASENAME}"
+              if gh release download "$DATA_TAG" -p "$BASENAME" -D /tmp/existing-archives 2>/dev/null; then
+                python release_data.py merge-archive "$EXISTING" "$ARCHIVE" "$ARCHIVE"
+              fi
+              ARCH_SIZE=$(du -h "$ARCHIVE" | cut -f1)
+              echo "Uploading expired archive: ${BASENAME} (${ARCH_SIZE})"
+              gh release upload "$DATA_TAG" "$ARCHIVE" --clobber
+            done
             rm data/_expired.csv
           fi
 
