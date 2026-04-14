@@ -186,6 +186,9 @@ jobs:
       - name: Finalize data
         run: python collect.py --finalize-only
 
+      - name: Build derived latest offers view
+        run: python latest_offers.py --input data/_master.csv --output data/_latest_gpu_offers.csv
+
       - name: Upload data to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
