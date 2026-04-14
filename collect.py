@@ -708,7 +708,14 @@ def _generate_dashboard_asset(data_dir: str) -> None:
         from dashboard_asset import build_dashboard_asset_from_master
 
         output_path = os.path.join(data_dir, DEFAULT_DASHBOARD_ASSET_FILENAME)
-        asset = build_dashboard_asset_from_master(master_csv_path=master_path, output_path=output_path)
+        asset = build_dashboard_asset_from_master(
+            master_csv_path=master_path,
+            output_path=output_path,
+            generated_at=os.environ.get("OCP_DASHBOARD_ASSET_GENERATED_AT", ""),
+            release_tag=os.environ.get("OCP_DASHBOARD_ASSET_RELEASE_TAG", "latest-data"),
+            release_name=os.environ.get("OCP_DASHBOARD_ASSET_RELEASE_NAME", ""),
+            release_updated_at=os.environ.get("OCP_DASHBOARD_ASSET_RELEASE_UPDATED_AT", ""),
+        )
         logger.info(
             "Dashboard asset ready: %s chart GPUs, %s latest rows → %s",
             asset["coverage"]["chart_gpu_count"],

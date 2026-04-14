@@ -183,23 +183,25 @@ jobs:
           name: data-browser
           path: data
 
+      - name: Set release metadata
+        run: |
+          echo "RELEASE_UPDATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          echo "RELEASE_TITLE=GPU Pricing Data — $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_ENV"
+
       - name: Finalize data
+        env:
+          OCP_DASHBOARD_ASSET_GENERATED_AT: ${{ env.RELEASE_UPDATED_AT }}
+          OCP_DASHBOARD_ASSET_RELEASE_TAG: ${{ env.DATA_TAG }}
+          OCP_DASHBOARD_ASSET_RELEASE_NAME: ${{ env.RELEASE_TITLE }}
+          OCP_DASHBOARD_ASSET_RELEASE_UPDATED_AT: ${{ env.RELEASE_UPDATED_AT }}
         run: python collect.py --finalize-only
 
       - name: Upload data to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          TITLE="GPU Pricing Data — $(date -u '+%Y-%m-%d %H:%M UTC')"
-
-          python dashboard_asset.py \
-            --input data/_master.csv \
-            --output data/dashboard_gpu_daily.json.gz \
-            --generated-at "$DATE" \
-            --release-tag "$DATA_TAG" \
-            --release-name "$TITLE" \
-            --release-updated-at "$DATE"
+          DATE="${RELEASE_UPDATED_AT}"
+          TITLE="${RELEASE_TITLE}"
 
           # Upload expired rows as a separate archive (if any were pruned)
           if [ -f data/_expired.csv ] && [ -s data/_expired.csv ]; then

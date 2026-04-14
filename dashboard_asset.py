@@ -404,8 +404,8 @@ def _default_release_name(timestamp: str) -> str:
     return f"GPU Pricing Data — {dt.strftime('%Y-%m-%d %H:%M UTC')}"
 
 
-def build_dashboard_asset(
-    rows: list[dict],
+def _build_dashboard_asset_from_rows_iter(
+    rows_iter,
     generated_at: str = "",
     release_tag: str = DEFAULT_RELEASE_TAG,
     release_name: str = "",
@@ -415,13 +415,16 @@ def build_dashboard_asset(
     release_updated_at = release_updated_at or generated_at
 
     quality_summary = {key: 0 for key in QUALITY_SUMMARY_KEYS}
-    eligible_rows = []
     min_date = ""
     max_date = ""
     source_last_updated = ""
     gpu_meta = {}
+    instance_minima = {}
+    latest_on_demand = {}
+    latest_spot = {}
+    latest_snapshot_date = ""
 
-    for row in rows:
+    for row in rows_iter:
         snapshot_date = str(row.get("snapshot_date", "")).strip()
         snapshot_ts = str(row.get("snapshot_ts", "")).strip()
         if snapshot_date:
@@ -429,6 +432,10 @@ def build_dashboard_asset(
                 min_date = snapshot_date
             if not max_date or snapshot_date > max_date:
                 max_date = snapshot_date
+            if not latest_snapshot_date or snapshot_date > latest_snapshot_date:
+                latest_snapshot_date = snapshot_date
+                latest_on_demand.clear()
+                latest_spot.clear()
         if snapshot_ts and snapshot_ts > source_last_updated:
             source_last_updated = snapshot_ts
 
@@ -437,11 +444,39 @@ def build_dashboard_asset(
             quality_summary[exclusion_reason] += 1
         if not normalized:
             continue
-        eligible_rows.append(normalized)
         gpu_meta[normalized["gpu_slug"]] = {
             "gpu_label": normalized["gpu_label"],
             "gpu_category": normalized["gpu_category"],
         }
+
+        if normalized["pricing_type"] == "on_demand" and normalized["snapshot_date"]:
+            key = (
+                normalized["snapshot_date"],
+                normalized["gpu_slug"],
+                normalized["provider_slug"],
+                normalized["instance_type"],
+            )
+            current = instance_minima.get(key)
+            if current is None or normalized["price_per_gpu_hour"] < current:
+                instance_minima[key] = normalized["price_per_gpu_hour"]
+
+        if normalized["snapshot_date"] != latest_snapshot_date:
+            continue
+
+        latest_key = (
+            normalized["provider_slug"],
+            normalized["gpu_slug"],
+            normalized["interconnect_slug"],
+            normalized["region_slug"],
+        )
+        if normalized["pricing_type"] == "on_demand":
+            current = latest_on_demand.get(latest_key)
+            if current is None or normalized["price_per_gpu_hour"] < current["price_per_gpu_hour"]:
+                latest_on_demand[latest_key] = normalized
+        elif normalized["pricing_type"] == "spot":
+            current = latest_spot.get(latest_key)
+            if current is None or normalized["price_per_gpu_hour"] < current["price_per_gpu_hour"]:
+                latest_spot[latest_key] = normalized
 
     if not source_last_updated:
         source_last_updated = f"{max_date}T00:00:00Z" if max_date else generated_at
@@ -453,15 +488,6 @@ def build_dashboard_asset(
     # 1. per date+gpu+provider+instance keep minimum price
     # 2. per date+gpu+provider median of instance minima
     # 3. per date+gpu median across providers
-    instance_minima = {}
-    for row in eligible_rows:
-        if row["pricing_type"] != "on_demand" or not row["snapshot_date"]:
-            continue
-        key = (row["snapshot_date"], row["gpu_slug"], row["provider_slug"], row["instance_type"])
-        current = instance_minima.get(key)
-        if current is None or row["price_per_gpu_hour"] < current:
-            instance_minima[key] = row["price_per_gpu_hour"]
-
     provider_instance_prices = defaultdict(list)
     for (snapshot_date, gpu_slug, provider_slug, _instance_type), price in instance_minima.items():
         provider_instance_prices[(snapshot_date, gpu_slug, provider_slug)].append(price)
@@ -506,27 +532,6 @@ def build_dashboard_asset(
             "gpu_label": gpu_meta[gpu_slug]["gpu_label"],
             "values": values,
         })
-
-    # Latest pricing table.
-    latest_on_demand = {}
-    latest_spot = {}
-    for row in eligible_rows:
-        if row["snapshot_date"] != max_date:
-            continue
-        key = (
-            row["provider_slug"],
-            row["gpu_slug"],
-            row["interconnect_slug"],
-            row["region_slug"],
-        )
-        if row["pricing_type"] == "on_demand":
-            current = latest_on_demand.get(key)
-            if current is None or row["price_per_gpu_hour"] < current["price_per_gpu_hour"]:
-                latest_on_demand[key] = row
-        elif row["pricing_type"] == "spot":
-            current = latest_spot.get(key)
-            if current is None or row["price_per_gpu_hour"] < current["price_per_gpu_hour"]:
-                latest_spot[key] = row
 
     def change_30d_pct_for_gpu(gpu_slug: str) -> float | None:
         if not dates:
@@ -628,6 +633,22 @@ def build_dashboard_asset(
     }
 
 
+def build_dashboard_asset(
+    rows: list[dict],
+    generated_at: str = "",
+    release_tag: str = DEFAULT_RELEASE_TAG,
+    release_name: str = "",
+    release_updated_at: str = "",
+) -> dict:
+    return _build_dashboard_asset_from_rows_iter(
+        iter(rows),
+        generated_at=generated_at,
+        release_tag=release_tag,
+        release_name=release_name,
+        release_updated_at=release_updated_at,
+    )
+
+
 def write_dashboard_asset(asset: dict, output_path: str) -> None:
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     with gzip.open(output_path, "wt", encoding="utf-8") as f:
@@ -649,14 +670,25 @@ def build_dashboard_asset_from_master(
     release_name: str = "",
     release_updated_at: str = "",
 ) -> dict:
-    rows = read_master_rows(master_csv_path)
-    asset = build_dashboard_asset(
-        rows,
-        generated_at=generated_at,
-        release_tag=release_tag,
-        release_name=release_name,
-        release_updated_at=release_updated_at,
-    )
+    if not os.path.isfile(master_csv_path):
+        asset = _build_dashboard_asset_from_rows_iter(
+            (),
+            generated_at=generated_at,
+            release_tag=release_tag,
+            release_name=release_name,
+            release_updated_at=release_updated_at,
+        )
+        write_dashboard_asset(asset, output_path)
+        return asset
+
+    with open(master_csv_path, newline="", encoding="utf-8") as f:
+        asset = _build_dashboard_asset_from_rows_iter(
+            csv.DictReader(f),
+            generated_at=generated_at,
+            release_tag=release_tag,
+            release_name=release_name,
+            release_updated_at=release_updated_at,
+        )
     write_dashboard_asset(asset, output_path)
     logger.info(
         "Dashboard asset: %s chart GPUs, %s latest pricing rows → %s",
