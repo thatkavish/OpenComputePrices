@@ -36,7 +36,7 @@ COLUMNS = [
     "region",                 # Provider-specific region code (e.g. "us-east-1")
     "zone",                   # Availability zone if available
     "country",                # ISO country code if derivable
-    "geo_group",              # Geographic grouping: US, EU, APAC, etc.
+    "geo_group",              # Geographic display bucket: US East, Europe, APAC, etc.
 
     # --- Pricing ---
     "pricing_type",           # on_demand, spot, reserved, inference (normalized)
@@ -60,6 +60,26 @@ COLUMNS = [
     # --- Extra ---
     "raw_extra",              # JSON string with any additional provider-specific fields
 ]
+
+# Provider name normalization map
+PROVIDER_NAME_MAP = {
+    "do": "digitalocean",
+    "digital_ocean": "digitalocean",
+    "gcp": "gcp",
+    "google_cloud": "gcp",
+    "googlecloud": "gcp",
+    "lambda_labs": "lambda",
+    "lambdalabs": "lambda",
+    "massed_compute": "massedcompute",
+    "massedcompute": "massedcompute",
+    "oci": "oracle",
+    "oracle_cloud": "oracle",
+    "packet.ai": "packet_ai",
+    "packet_ai": "packet_ai",
+    "runpod": "runpod",
+    "thunder_compute": "thundercompute",
+    "thundercompute": "thundercompute",
+}
 
 # GPU name normalization map
 GPU_NAME_MAP = {
@@ -103,6 +123,7 @@ GPU_NAME_MAP = {
     "nvidia p100": "P100", "p100": "P100", "tesla p100": "P100",
     "p100-pcie-16gb": "P100",
     "nvidia p4": "P4", "p4": "P4", "tesla p4": "P4",
+    "nvidia p40": "P40", "p40": "P40", "tesla p40": "P40",
     # NVIDIA Blackwell
     "nvidia b200": "B200", "b200": "B200", "b200-192gb": "B200",
     "nvidia b300": "B300", "b300": "B300",
@@ -119,11 +140,27 @@ GPU_NAME_MAP = {
     "geforcertx5090-pcie-32gb": "RTX 5090",
     "rtx a6000": "RTX A6000", "a6000": "RTX A6000", "rtxa6000": "RTX A6000",
     "rtx a6000 ada": "RTX A6000",
+    "rtx 6000": "RTX 6000", "rtx6000": "RTX 6000",
     "rtx 6000 ada": "RTX 6000 Ada", "rtx6000ada": "RTX 6000 Ada",
+    "rtx pro 6000": "RTX PRO 6000", "rtxpro6000": "RTX PRO 6000",
+    "nvidia rtx pro 6000": "RTX PRO 6000",
+    "rtx pro 6000 se": "RTX PRO 6000 Server Edition",
+    "rtxpro6000se": "RTX PRO 6000 Server Edition",
+    "pro6000se": "RTX PRO 6000 Server Edition",
+    "nvidia rtx pro 6000 server edition": "RTX PRO 6000 Server Edition",
+    "rtx pro 6000 server edition": "RTX PRO 6000 Server Edition",
+    "rtx pro 6000 workstation edition": "RTX PRO 6000 Workstation Edition",
+    "rtxpro6000we": "RTX PRO 6000 Workstation Edition",
+    "pro6000we": "RTX PRO 6000 Workstation Edition",
+    "rtx pro 6000 blackwell max-q workstation edition": "RTX PRO 6000 Blackwell Max-Q Workstation Edition",
+    "rtxpro6000blackwellmaxqworkstationedition": "RTX PRO 6000 Blackwell Max-Q Workstation Edition",
     "rtx a5000": "RTX A5000", "a5000": "RTX A5000", "rtxa5000": "RTX A5000",
     "rtx 5000 ada": "RTX 5000 Ada", "rtx5000ada": "RTX 5000 Ada",
     "rtx a4500": "RTX A4500", "rtxa4500": "RTX A4500",
     "rtx a4000": "RTX A4000", "a4000": "RTX A4000", "rtxa4000": "RTX A4000",
+    "rtx a2000": "RTX A2000", "a2000": "RTX A2000", "rtxa2000": "RTX A2000",
+    "gtx 1070 ti": "GTX 1070 Ti", "gtx1070ti": "GTX 1070 Ti",
+    "gtx 1050 ti": "GTX 1050 Ti", "gtx1050ti": "GTX 1050 Ti",
     # AMD
     "mi300x": "MI300X", "amd mi300x": "MI300X",
     "mi250x": "MI250X", "amd mi250x": "MI250X",
@@ -132,16 +169,39 @@ GPU_NAME_MAP = {
     "trainium": "Trainium", "trainium2": "Trainium2",
     "inferentia": "Inferentia", "inferentia2": "Inferentia2",
     "gaudi": "Gaudi", "gaudi hl-205": "Gaudi",
-    "gaudi 2": "Gaudi 2", "gaudi 3": "Gaudi 3",
+    "gaudi 2": "Gaudi 2", "gaudi2": "Gaudi 2",
+    "gaudi 3": "Gaudi 3", "gaudi3": "Gaudi 3",
     "qualcomm ai100": "Qualcomm AI100",
     # SkyPilot-specific formats
     "t4g": "T4G",
     "gh200": "GH200",
 }
 
+INVALID_GPU_NAMES = {
+    "1",
+    "cpu",
+    "gpu",
+    "gpu (unspecified)",
+    "none",
+    "n/a",
+    "na",
+    "unknown",
+    "unspecified",
+}
+
 # Regex patterns for fallback normalization
 _GPU_REGEX_PATTERNS = [
+    (re.compile(r"rtx\s*pro\s*6000\s*blackwell\s*max[-\s]*q\s*workstation\s*edition", re.I),
+     lambda m: "RTX PRO 6000 Blackwell Max-Q Workstation Edition"),
+    (re.compile(r"rtx\s*pro\s*6000\s*(?:server\s*edition|se)\b", re.I),
+     lambda m: "RTX PRO 6000 Server Edition"),
+    (re.compile(r"rtx\s*pro\s*6000\s*(?:workstation\s*edition|we)\b", re.I),
+     lambda m: "RTX PRO 6000 Workstation Edition"),
+    (re.compile(r"(?:nvidia\s*)?rtx\s*pro\s*6000", re.I), lambda m: "RTX PRO 6000"),
+    (re.compile(r"(?:nvidia\s*)?rtx\s*a\s*(\d{4})", re.I), lambda m: f"RTX A{m.group(1)}"),
     (re.compile(r"(?:nvidia\s*)?(?:geforce\s*)?rtx\s*(\d{4})", re.I), lambda m: f"RTX {m.group(1)}"),
+    (re.compile(r"(?:nvidia\s*)?gtx\s*(\d{4})\s*ti", re.I), lambda m: f"GTX {m.group(1)} Ti"),
+    (re.compile(r"(?:nvidia\s*)?gtx\s*(\d{4})", re.I), lambda m: f"GTX {m.group(1)}"),
     (re.compile(r"(?:nvidia\s*)?h(\d00)", re.I), lambda m: f"H{m.group(1)}"),
     (re.compile(r"(?:nvidia\s*)?a100", re.I), lambda m: "A100"),
     (re.compile(r"(?:nvidia\s*)?a10g", re.I), lambda m: "A10G"),
@@ -153,10 +213,23 @@ _GPU_REGEX_PATTERNS = [
     (re.compile(r"(?:nvidia\s*)?(?:tesla\s*)?v100", re.I), lambda m: "V100"),
     (re.compile(r"(?:nvidia\s*)?t4(?!\d|g)", re.I), lambda m: "T4"),
     (re.compile(r"(?:nvidia\s*)?(?:tesla\s*)?k80", re.I), lambda m: "K80"),
+    (re.compile(r"(?:nvidia\s*)?(?:tesla\s*)?p40", re.I), lambda m: "P40"),
     (re.compile(r"(?:nvidia\s*)?b200", re.I), lambda m: "B200"),
     (re.compile(r"(?:nvidia\s*)?gb200", re.I), lambda m: "GB200"),
     (re.compile(r"mi300x", re.I), lambda m: "MI300X"),
+    (re.compile(r"gaudi\s*2", re.I), lambda m: "Gaudi 2"),
+    (re.compile(r"gaudi\s*3", re.I), lambda m: "Gaudi 3"),
 ]
+
+
+def normalize_provider(raw: str) -> str:
+    """Normalize provider names and remove presentation-only sponsorship suffixes."""
+    if not raw:
+        return ""
+    key = raw.strip().lower().replace("-", "_").replace(" ", "_")
+    key = re.sub(r"_(?:our_)?sponsor(?:ed)?$", "", key)
+    key = re.sub(r"_sponsored$", "", key)
+    return PROVIDER_NAME_MAP.get(key, key)
 
 
 def normalize_gpu_name(raw: str) -> str:
@@ -164,6 +237,8 @@ def normalize_gpu_name(raw: str) -> str:
     if not raw:
         return ""
     key = raw.strip().lower()
+    if key in INVALID_GPU_NAMES:
+        return ""
 
     # Direct lookup
     if key in GPU_NAME_MAP:
@@ -172,8 +247,14 @@ def normalize_gpu_name(raw: str) -> str:
     # Try with common separators replaced
     key_normalized = key.replace("-", " ").replace("_", " ")
     key_normalized = re.sub(r"\s+", " ", key_normalized).strip()
+    if key_normalized in INVALID_GPU_NAMES:
+        return ""
     if key_normalized in GPU_NAME_MAP:
         return GPU_NAME_MAP[key_normalized]
+
+    key_compact = re.sub(r"[^a-z0-9]+", "", key)
+    if key_compact in GPU_NAME_MAP:
+        return GPU_NAME_MAP[key_compact]
 
     # Strip trailing specs like "pcie 24gb", "sxm5 80gb"
     key_stripped = re.sub(r"\s*(pcie|sxm\d?|nvlink|hgx)\s*\d*\s*g?b?$", "", key_normalized).strip()
@@ -189,17 +270,59 @@ def normalize_gpu_name(raw: str) -> str:
     return raw.strip()
 
 
-# Region → geo group mapping helpers
-GEO_PREFIXES = {
-    "us-": "US", "ca-": "US",
-    "eu-": "EU", "me-": "EU",
-    "ap-": "APAC",
-    "sa-": "LATAM",
-    "af-": "AFRICA",
-    "il-": "EU",
-    # Azure
-    "east": "US", "west": "US", "central": "US", "south": "US", "north": "EU",
+# Region → display bucket mapping helpers
+COUNTRY_GEO_GROUPS = {
+    "US": "US Other",
+    "CA": "Canada",
+    "MX": "LATAM",
+    "BR": "LATAM",
+    "CL": "LATAM",
+    "AR": "LATAM",
+    "CZ": "Europe",
+    "DE": "Europe",
+    "ES": "Europe",
+    "FR": "Europe",
+    "GB": "Europe",
+    "IE": "Europe",
+    "IS": "Europe",
+    "IT": "Europe",
+    "NL": "Europe",
+    "NO": "Europe",
+    "PL": "Europe",
+    "RO": "Europe",
+    "SE": "Europe",
+    "CH": "Europe",
+    "IL": "Middle East",
+    "AE": "Middle East",
+    "QA": "Middle East",
+    "SA": "Middle East",
+    "AU": "APAC",
+    "ID": "APAC",
+    "IN": "APAC",
+    "JP": "APAC",
+    "KR": "APAC",
+    "MY": "APAC",
+    "NZ": "APAC",
+    "SG": "APAC",
+    "ZA": "Africa",
 }
+
+_US_EAST_PREFIXES = ("us-east", "useast", "eastus")
+_US_WEST_PREFIXES = ("us-west", "uswest", "westus", "westcentralus")
+_US_CENTRAL_PREFIXES = ("us-central", "uscentral", "centralus", "northcentralus", "southcentralus")
+_CANADA_PREFIXES = ("ca-", "canada", "cacentr", "caeast")
+_EUROPE_PREFIXES = (
+    "eu-", "europe", "westeurope", "northeurope", "uk", "germany", "france",
+    "switzerland", "sweden", "norway", "italy", "poland", "spain",
+)
+_APAC_PREFIXES = (
+    "ap-", "asia", "eastasia", "southeastasia", "australia", "japan",
+    "korea", "centralindia", "southindia", "westindia", "jioindia",
+    "indonesia", "malaysia", "newzealand",
+)
+_LATAM_PREFIXES = ("sa-", "brazil", "southamerica", "mexico", "chile")
+_MIDDLE_EAST_PREFIXES = ("me-", "uae", "qatar", "israel", "il-")
+_AFRICA_PREFIXES = ("af-", "southafrica")
 
 
 # ── Pricing type normalization ────────────────────────────────────────────────
@@ -257,12 +380,38 @@ def normalize_gpu_variant(raw: str) -> str:
     return raw.strip()
 
 
-def infer_geo_group(region: str) -> str:
-    """Best-effort geographic grouping from region code."""
-    if not region:
-        return ""
-    r = region.lower()
-    for prefix, group in GEO_PREFIXES.items():
-        if r.startswith(prefix):
-            return group
-    return ""
+def infer_geo_group(region: str, country: str = "") -> str:
+    """Best-effort display bucket from provider region code or country code."""
+    raw_region = (region or "").strip()
+    raw_country = (country or "").strip().upper()
+    if raw_region.upper() in COUNTRY_GEO_GROUPS:
+        return COUNTRY_GEO_GROUPS[raw_region.upper()]
+    if raw_country in COUNTRY_GEO_GROUPS:
+        return COUNTRY_GEO_GROUPS[raw_country]
+    if not raw_region:
+        return "Unknown"
+
+    r = raw_region.lower().replace("_", "-").replace(" ", "")
+    if r.startswith(_US_EAST_PREFIXES):
+        return "US East"
+    if r.startswith(_US_WEST_PREFIXES):
+        return "US West"
+    if r.startswith(_US_CENTRAL_PREFIXES):
+        return "US Central"
+    if r.startswith(_CANADA_PREFIXES):
+        return "Canada"
+    if r.startswith(_MIDDLE_EAST_PREFIXES):
+        return "Middle East"
+    if r.startswith(_EUROPE_PREFIXES):
+        return "Europe"
+    if r.startswith(_APAC_PREFIXES):
+        return "APAC"
+    if r.startswith(_LATAM_PREFIXES):
+        return "LATAM"
+    if r.startswith(_AFRICA_PREFIXES):
+        return "Africa"
+    if r.startswith("us") or r.startswith("usdod") or r.startswith("usgov"):
+        return "US Other"
+    if r.startswith("na-") or r.startswith("northamerica"):
+        return "North America"
+    return "Unknown"

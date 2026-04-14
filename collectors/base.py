@@ -9,12 +9,62 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 
-from schema import COLUMNS, normalize_pricing_type, normalize_gpu_variant
+from schema import (
+    COLUMNS,
+    infer_geo_group,
+    normalize_gpu_name,
+    normalize_gpu_variant,
+    normalize_pricing_type,
+    normalize_provider,
+)
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 RETENTION_DAYS = 90
+
+
+def migrate_csv_to_current_schema(path: str) -> bool:
+    """
+    Rewrite a source CSV with the current canonical header if its header is stale.
+
+    Appending rows under an older header can shift tail columns after schema changes.
+    When a data row already has the current column count, treat it as a current-schema
+    append even if the file header is stale.
+    """
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        return False
+
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return False
+
+    if header == COLUMNS:
+        return False
+
+    tmp_path = f"{path}.tmp"
+    migrated = 0
+    with open(path, newline="", encoding="utf-8") as src, open(tmp_path, "w", newline="", encoding="utf-8") as dst:
+        reader = csv.reader(src)
+        next(reader, None)
+        writer = csv.DictWriter(dst, fieldnames=COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        for values in reader:
+            if not any(str(value).strip() for value in values):
+                continue
+            if len(values) == len(COLUMNS):
+                row = dict(zip(COLUMNS, values))
+            else:
+                row = dict(zip(header, values))
+            writer.writerow(row)
+            migrated += 1
+
+    os.replace(tmp_path, path)
+    logger.info(f"[schema] Migrated {os.path.basename(path)} from {len(header)} to {len(COLUMNS)} columns ({migrated} rows)")
+    return True
 
 
 class BaseCollector:
@@ -60,9 +110,19 @@ class BaseCollector:
         row["price_unit"] = "hour"
         row.update(kwargs)
         # Normalize terminology across providers
+        row["provider"] = normalize_provider(row["provider"])
+        row["gpu_name"] = normalize_gpu_name(row["gpu_name"])
         row["pricing_type"] = normalize_pricing_type(row["pricing_type"])
         row["gpu_variant"] = normalize_gpu_variant(row["gpu_variant"])
+        row["geo_group"] = infer_geo_group(row["region"], row["country"])
         return row
+
+    @staticmethod
+    def should_save_row(row: Dict[str, Any]) -> bool:
+        """Keep inference rows and GPU/accelerator rows with a concrete device name."""
+        if str(row.get("pricing_type", "")).lower() == "inference":
+            return True
+        return bool(str(row.get("gpu_name", "")).strip())
 
     def save(self, rows: List[Dict[str, Any]]) -> str:
         """
@@ -73,9 +133,19 @@ class BaseCollector:
             logger.info(f"[{self.name}] No rows to save")
             return ""
 
+        original_count = len(rows)
+        rows = [row for row in rows if self.should_save_row(row)]
+        dropped = original_count - len(rows)
+        if dropped:
+            logger.info(f"[{self.name}] Dropped {dropped} rows without a concrete GPU/accelerator name")
+        if not rows:
+            logger.info(f"[{self.name}] No rows to save")
+            return ""
+
         os.makedirs(DATA_DIR, exist_ok=True)
         path = os.path.join(DATA_DIR, f"{self.name}.csv")
 
+        migrate_csv_to_current_schema(path)
         file_exists = os.path.isfile(path) and os.path.getsize(path) > 0
 
         with open(path, "a", newline="", encoding="utf-8") as f:

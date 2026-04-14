@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import urllib.request
+from html import unescape
 from typing import List, Dict, Any
 
 from collectors.base import BaseCollector
@@ -133,5 +134,128 @@ class MassedComputeCollector(BaseCollector):
                         available=True,
                     ))
 
+        if not all_rows:
+            all_rows.extend(self._parse_text_pricing(html))
+
         logger.info(f"[massedcompute] Total: {len(all_rows)} rows")
         return all_rows
+
+    def _parse_text_pricing(self, html: str) -> List[Dict[str, Any]]:
+        rows = []
+        lines = _html_to_lines(html)
+        in_section = False
+        current_gpu = ""
+        current_mem = 0
+        seen = set()
+
+        idx = 0
+        while idx < len(lines):
+            line = lines[idx]
+            if line.startswith("GPU Type"):
+                in_section = True
+                idx += 1
+                continue
+            if in_section and line == "Bare Metal":
+                break
+            if not in_section:
+                idx += 1
+                continue
+
+            if _is_gpu_header(line):
+                current_gpu = line
+                current_mem = 0
+                idx += 1
+                continue
+
+            if current_gpu and not current_mem:
+                mem_match = re.fullmatch(r"(\d+)\s*GB", line, re.I)
+                if mem_match:
+                    current_mem = int(mem_match.group(1))
+                    idx += 1
+                    continue
+
+            if not current_gpu:
+                idx += 1
+                continue
+            count_match = re.match(r"x\s*(\d+)", line, re.I)
+            if not count_match:
+                idx += 1
+                continue
+
+            cells = []
+            price = 0.0
+            lookahead = idx + 1
+            while lookahead < len(lines):
+                next_line = lines[lookahead]
+                if next_line == "Bare Metal" or _is_gpu_header(next_line) or re.match(r"x\s*\d+", next_line, re.I):
+                    break
+                price_match = re.search(r"\$([\d.]+)\s*/?\s*hr", next_line, re.I)
+                if price_match:
+                    price = float(price_match.group(1))
+                    break
+                if next_line.lower() == "request":
+                    break
+                cells.append(next_line)
+                lookahead += 1
+
+            if price <= 0:
+                idx += 1
+                continue
+
+            gpu_count = int(count_match.group(1))
+            vcpus = cells[1] if len(cells) > 1 else ""
+            ram = cells[2] if len(cells) > 2 else ""
+            storage = cells[3] if len(cells) > 3 else ""
+            key = (current_gpu, gpu_count, price)
+            if key in seen:
+                idx = max(lookahead, idx + 1)
+                continue
+            seen.add(key)
+
+            rows.append(self.make_row(
+                provider="massedcompute",
+                instance_type=f"{current_gpu} x{gpu_count}",
+                gpu_name=normalize_gpu_name(current_gpu),
+                gpu_memory_gb=current_mem,
+                gpu_count=gpu_count,
+                vcpus=vcpus,
+                ram_gb=_parse_gb(ram),
+                storage_desc=storage,
+                pricing_type="on_demand",
+                price_per_hour=price,
+                price_per_gpu_hour=round(price / gpu_count, 6),
+                available=True,
+            ))
+            idx = max(lookahead, idx + 1)
+
+        return rows
+
+
+def _html_to_lines(html: str) -> list[str]:
+    text = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", " ", html, flags=re.I | re.S)
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"</(?:p|div|li|tr|td|th|h[1-6]|span)>", "\n", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    lines = []
+    for line in unescape(text).splitlines():
+        line = line.replace("\xa0", " ")
+        line = re.sub(r"[ \r\f\v]+", " ", line).strip()
+        if line:
+            lines.append(line)
+    return lines
+
+
+def _is_gpu_header(line: str) -> bool:
+    return bool(re.fullmatch(
+        r"(?:DGX\s+)?(?:H200|H100|A100|A40|A30|L40S?|RTX\s+(?:A?6000|A?5000)(?:\s+\[NVLink\])?(?:\s+ADA)?)(?:\s+(?:SXM\d?|NVL|PCIe))?",
+        line,
+        re.I,
+    ))
+
+
+def _parse_gb(value: str):
+    match = re.search(r"(\d+(?:\.\d+)?)\s*GB", value, re.I)
+    if not match:
+        return ""
+    parsed = float(match.group(1))
+    return int(parsed) if parsed.is_integer() else parsed

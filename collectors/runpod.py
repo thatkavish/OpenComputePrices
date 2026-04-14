@@ -7,6 +7,8 @@ Requires API key (RUNPOD_API_KEY env var).
 
 import json
 import logging
+import urllib.error
+import urllib.parse
 import urllib.request
 from typing import List, Dict, Any
 
@@ -57,18 +59,7 @@ class RunPodCollector(BaseCollector):
 
         payload = json.dumps({"query": QUERY}).encode("utf-8")
         try:
-            req = urllib.request.Request(
-                API_URL,
-                data=payload,
-                method="POST",
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                    "Authorization": f"Bearer {api_key}",
-                },
-            )
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                data = json.loads(resp.read().decode())
+            data = self._post_graphql(payload, api_key)
         except Exception as e:
             logger.error(f"[runpod] GraphQL request failed: {e}")
             return []
@@ -186,3 +177,37 @@ class RunPodCollector(BaseCollector):
 
         logger.info(f"[runpod] Total: {len(rows)} rows across {len(gpu_types)} GPU types")
         return rows
+
+    def _post_graphql(self, payload: bytes, api_key: str) -> dict:
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "User-Agent": "OpenComputePrices/1.0",
+        }
+        try:
+            return self._post_graphql_once(API_URL, payload, headers)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")[:500]
+            if e.code not in (401, 403):
+                raise RuntimeError(f"{e}; body={body}") from e
+            logger.warning(f"[runpod] Bearer auth failed ({e.code}); retrying with api_key query parameter")
+            fallback_url = f"{API_URL}?{urllib.parse.urlencode({'api_key': api_key})}"
+            fallback_headers = dict(headers)
+            fallback_headers.pop("Authorization", None)
+            try:
+                return self._post_graphql_once(fallback_url, payload, fallback_headers)
+            except urllib.error.HTTPError as fallback_error:
+                fallback_body = fallback_error.read().decode("utf-8", errors="replace")[:500]
+                raise RuntimeError(f"{fallback_error}; body={fallback_body}") from fallback_error
+
+    @staticmethod
+    def _post_graphql_once(url: str, payload: bytes, headers: dict) -> dict:
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            method="POST",
+            headers=headers,
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return json.loads(resp.read().decode())

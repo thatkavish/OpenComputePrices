@@ -2,7 +2,7 @@
 
 **Open-source historical GPU and inference cloud pricing dataset**, automatically updated daily via GitHub Actions.
 
-Collects pricing data from **42 collectors across 65+ GPU cloud providers** — hyperscalers, neoclouds, marketplaces, aggregators, and inference platforms — storing every dimension that affects price at maximum granularity.
+Collects pricing data from **39 collectors across 65+ GPU cloud providers** — hyperscalers, neoclouds, marketplaces, aggregators, and inference platforms — storing every dimension that affects price at maximum granularity.
 
 ## Data Schema
 
@@ -28,7 +28,7 @@ Every row in the dataset contains 33 columns:
 | `region`             | Provider-specific region code                                 |
 | `zone`               | Availability zone                                             |
 | `country`            | ISO country code if derivable                                 |
-| `geo_group`          | Geographic grouping (US, EU, APAC, LATAM, AFRICA)             |
+| `geo_group`          | Geographic display bucket (US East, Europe, APAC, etc.)       |
 | `pricing_type`       | on_demand, spot, reserved, inference (normalized — see below) |
 | `commitment_period`  | 1yr, 3yr, 1wk, etc.                                           |
 | `price_per_hour`     | Instance-level hourly price (USD)                             |
@@ -82,7 +82,7 @@ GPU compute pricing (per-hour, per-GPU-hour) from cloud providers, neoclouds, an
 | ------------------- | ---------------------------------------------------- |
 | Providers           | 65+ (AWS, Azure, GCP, RunPod, Lambda, Vast.ai, etc.) |
 | Pricing Types       | on_demand, spot, reserved                            |
-| Geographic Coverage | Global (US, EU, APAC, LATAM, Africa)                 |
+| Geographic Coverage | Global (US, Canada, Europe, APAC, LATAM, Middle East, Africa) |
 
 ### `_inference.csv` — Model Inference Pricing
 
@@ -133,6 +133,7 @@ The databases are automatically separated during the unification step (`unify.py
 | **E2E Networks**    | H100, A100, L40S, V100               | Indian cloud; hourly/monthly/annual pricing        |
 | **Voltage Park**    | H100, H200, A100, B200               | JSON-LD structured data + HTML fallback            |
 | **Denvr Dataworks** | H100, A100, Gaudi, MI300X            | Embedded JSON + HTML extraction                    |
+| **Clore.ai**        | GPU marketplace                      | Public marketplace API                             |
 
 ### No Authentication Required — Playwright Browser Scrapers
 
@@ -144,13 +145,9 @@ These collectors use headless Chromium to render JS-heavy pricing pages. Require
 | **Together.ai**  | Inference models + GPU instances | Per-token inference + GPU-hour pricing |
 | **Hyperstack**   | H100, H200, A100, L40            | Table extraction from rendered page    |
 | **Gcore**        | GPU cloud instances              | Table + fallback pattern extraction    |
-| **Firmus**       | GPU instances                    | GPU/price pair extraction              |
-| **Neysa**        | GPU instances                    | Table extraction with VRAM             |
 | **GMI Cloud**    | GPU instances                    | GPU/price pairs + table fallback       |
 | **Lightning AI** | GPU accelerators                 | Table extraction from rendered page    |
 | **Salad**        | Consumer + datacenter GPUs       | Table + GPU/price pair extraction      |
-| **Clore.ai**     | GPU marketplace                  | Table + GPU/price pair extraction      |
-| **Exabits**      | GPU instances                    | GPU/price pair extraction              |
 | **Aethir**       | GPU instances                    | GPU/price pair extraction              |
 | **Qubrid**       | GPU instances                    | Table extraction with VRAM             |
 
@@ -270,7 +267,7 @@ OpenComputePrices/
 ├── collectors/
 │   ├── base.py                 # Base collector class with append-only save + prune/archive
 │   ├── browser_scraper.py      # Base class for Playwright browser-based scrapers
-│   ├── browser_providers.py    # 13 Playwright browser scrapers (CoreWeave, Together, etc.)
+│   ├── browser_providers.py    # 9 Playwright browser scrapers (CoreWeave, Together, etc.)
 │   ├── # --- No-auth APIs ---
 │   ├── aws.py                  # AWS Bulk Price List
 │   ├── azure.py                # Azure Retail Prices
@@ -295,6 +292,7 @@ OpenComputePrices/
 │   ├── e2e.py                  # E2E Networks
 │   ├── voltagepark.py          # Voltage Park
 │   ├── denvr.py                # Denvr Dataworks
+│   ├── cloreai.py              # Clore.ai marketplace
 │   ├── # --- Free API key required ---
 │   ├── shadeform.py            # Shadeform aggregator
 │   ├── runpod.py               # RunPod

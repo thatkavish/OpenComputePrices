@@ -7,6 +7,8 @@ Requires API key (PRIMEINTELLECT_API_KEY env var).
 
 import json
 import logging
+import urllib.error
+import urllib.parse
 import urllib.request
 from typing import List, Dict, Any
 
@@ -32,13 +34,13 @@ class PrimeIntellectCollector(BaseCollector):
         logger.info("[primeintellect] Fetching GPU availability and pricing")
 
         rows = []
-        page = 0
+        page = 1
         page_size = 200
         total_fetched = 0
 
         while True:
             try:
-                url = f"{API_URL}?page={page}&pageSize={page_size}"
+                url = f"{API_URL}?{urllib.parse.urlencode({'page': page, 'pageSize': page_size})}"
                 req = urllib.request.Request(url, headers={
                     "Accept": "application/json",
                     "Authorization": f"Bearer {api_key}",
@@ -48,7 +50,7 @@ class PrimeIntellectCollector(BaseCollector):
                     data = json.loads(resp.read().decode())
 
                 items = data.get("items", [])
-                total_count = data.get("totalCount", 0)
+                total_count = data.get("totalCount", data.get("total", 0))
 
                 for item in items:
                     row = self._parse_item(item)
@@ -60,6 +62,10 @@ class PrimeIntellectCollector(BaseCollector):
                     break
                 page += 1
 
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")[:500]
+                logger.warning(f"[primeintellect] page {page} failed: {e}; body={body}")
+                break
             except Exception as e:
                 logger.warning(f"[primeintellect] page {page} failed: {e}")
                 break

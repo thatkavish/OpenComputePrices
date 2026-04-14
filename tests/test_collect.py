@@ -112,6 +112,72 @@ class CollectTests(unittest.TestCase):
 
         finalize_mock.assert_called_once_with(skip_prune=False, no_unify=False)
 
+    def test_repair_shifted_tail_row_restores_currency_and_availability_fields(self):
+        row = self._row(
+            upfront_price="",
+            upfront_price_per_gpu="",
+            currency="0.0",
+            price_unit="0.0",
+            available="USD",
+            available_count="hour",
+            os="True",
+            tenancy="",
+            pre_installed_sw="Linux",
+            raw_extra="Dedicated",
+        )
+
+        self.assertTrue(collect._repair_shifted_tail_row(row))
+        self.assertEqual(row["upfront_price"], "0.0")
+        self.assertEqual(row["upfront_price_per_gpu"], "0.0")
+        self.assertEqual(row["currency"], "USD")
+        self.assertEqual(row["price_unit"], "hour")
+        self.assertEqual(row["available"], "True")
+        self.assertEqual(row["available_count"], "")
+        self.assertEqual(row["os"], "Linux")
+        self.assertEqual(row["tenancy"], "Dedicated")
+        self.assertEqual(row["pre_installed_sw"], "")
+        self.assertEqual(row["raw_extra"], "")
+
+    def test_normalize_existing_row_repairs_azure_h100_v5_gpu_count(self):
+        row = self._row(
+            source="azure",
+            provider="azure",
+            instance_type="Standard_NC40ads_H100_v5",
+            gpu_name="H100",
+            gpu_count="8",
+            gpu_memory_gb="80",
+            gpu_variant="SXM5",
+            price_per_hour="6.98",
+            price_per_gpu_hour="0.8725",
+        )
+
+        self.assertTrue(collect._normalize_existing_row(row))
+        self.assertEqual(row["gpu_count"], 1)
+        self.assertEqual(row["gpu_memory_gb"], 94)
+        self.assertEqual(row["gpu_variant"], "NVL")
+        self.assertEqual(row["price_per_gpu_hour"], "6.98")
+
+    def test_normalize_existing_row_marks_impossible_azure_hourly_price_as_reserved(self):
+        row = self._row(
+            source="azure",
+            provider="azure",
+            instance_type="Standard_NC48ads_A100_v4",
+            gpu_name="A100",
+            gpu_count="2",
+            price_per_hour="42066.0",
+            price_per_gpu_hour="21033.0",
+            upfront_price="",
+            upfront_price_per_gpu="",
+        )
+
+        self.assertTrue(collect._normalize_existing_row(row))
+        self.assertEqual(row["pricing_type"], "reserved")
+        self.assertEqual(row["commitment_period"], "unknown")
+        self.assertEqual(row["price_per_hour"], "0")
+        self.assertEqual(row["price_per_gpu_hour"], "0")
+        self.assertEqual(row["upfront_price"], "42066.0")
+        self.assertEqual(row["upfront_price_per_gpu"], "21033")
+
     def test_incremental_finalize_rebuilds_only_affected_snapshot_dates(self):
         preserved_master_row = self._row(
             snapshot_date="2098-12-31",

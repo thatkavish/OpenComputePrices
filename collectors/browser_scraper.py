@@ -9,6 +9,7 @@ pricing pages are entirely client-side rendered.
 import json
 import logging
 import re
+from html import unescape
 from typing import List, Dict, Any, Optional
 
 from collectors.base import BaseCollector
@@ -99,6 +100,10 @@ class BrowserScraper(BaseCollector):
                 # Small extra wait for dynamic content
                 page.wait_for_timeout(2000)
 
+                try:
+                    self._last_render_text = page.locator("body").inner_text(timeout=5000)
+                except Exception:
+                    self._last_render_text = ""
                 html = page.content()
                 browser.close()
                 return html
@@ -121,6 +126,25 @@ class BrowserScraper(BaseCollector):
             if rows:
                 tables.append(rows)
         return tables
+
+    def extract_text_lines(self, html: str) -> List[str]:
+        """Return rendered body text lines, falling back to lightweight HTML text extraction."""
+        text = getattr(self, "_last_render_text", "") or self.html_to_text(html)
+        lines = []
+        for line in text.splitlines():
+            line = line.replace("\xa0", " ")
+            line = re.sub(r"[ \r\f\v]+", " ", line).strip()
+            if line:
+                lines.append(line)
+        return lines
+
+    @staticmethod
+    def html_to_text(html: str) -> str:
+        text = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", " ", html, flags=re.I | re.S)
+        text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+        text = re.sub(r"</(?:p|div|li|tr|td|th|h[1-6]|span|button)>", "\n", text, flags=re.I)
+        text = re.sub(r"<[^>]+>", " ", text)
+        return unescape(text)
 
     @staticmethod
     def extract_gpu_price_pairs(html: str) -> List[Dict[str, Any]]:

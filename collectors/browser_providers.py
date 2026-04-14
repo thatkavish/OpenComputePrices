@@ -16,6 +16,19 @@ from schema import normalize_gpu_name
 logger = logging.getLogger(__name__)
 
 
+def _parse_price(line: str):
+    match = re.search(r"([$€])\s*([\d.]+)", line)
+    if not match:
+        return None, ""
+    currency = "EUR" if match.group(1) == "€" else "USD"
+    return float(match.group(2)), currency
+
+
+def _parse_memory_gb(text: str) -> int:
+    match = re.search(r"(\d+)\s*GB", text, re.I)
+    return int(match.group(1)) if match else 0
+
+
 # ---------------------------------------------------------------------------
 # CoreWeave — Platinum tier
 # ---------------------------------------------------------------------------
@@ -177,6 +190,11 @@ class HyperstackBrowserCollector(BrowserScraper):
 
     def parse_page(self, html: str) -> List[Dict[str, Any]]:
         rows = []
+        for row in self._parse_text_pricing(html):
+            rows.append(row)
+        if rows:
+            return rows
+
         # Try tables
         for table in self.extract_tables(html):
             if len(table) < 2:
@@ -221,6 +239,57 @@ class HyperstackBrowserCollector(BrowserScraper):
                 ))
         return rows
 
+    def _parse_text_pricing(self, html: str) -> List[Dict[str, Any]]:
+        rows = []
+        lines = self.extract_text_lines(html)
+        section = ""
+        seen = set()
+        for i, line in enumerate(lines):
+            if line == "On-Demand GPU":
+                section = "on_demand"
+                continue
+            if line == "Reservation":
+                section = "reserved"
+                continue
+            if line == "Spot VM":
+                section = "spot"
+                continue
+            if not section or not line.startswith("NVIDIA "):
+                continue
+
+            price = None
+            currency = "USD"
+            price_idx = None
+            for j in range(i + 1, min(i + 7, len(lines))):
+                parsed_price, parsed_currency = _parse_price(lines[j])
+                if parsed_price:
+                    price = parsed_price
+                    currency = parsed_currency
+                    price_idx = j
+                    break
+            if not price:
+                continue
+
+            gpu_raw = line.replace("NVIDIA", "", 1).strip()
+            memory = _parse_memory_gb(lines[i + 1]) if i + 1 < len(lines) else 0
+            key = (section, gpu_raw, price, price_idx)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(self.make_row(
+                provider="hyperstack",
+                instance_type=gpu_raw,
+                gpu_name=normalize_gpu_name(gpu_raw),
+                gpu_memory_gb=memory,
+                gpu_count=1,
+                pricing_type=section,
+                price_per_hour=price,
+                price_per_gpu_hour=price,
+                currency=currency,
+                available=True,
+            ))
+        return rows
+
 
 # ---------------------------------------------------------------------------
 # Gcore — Silver tier
@@ -232,6 +301,11 @@ class GcoreBrowserCollector(BrowserScraper):
 
     def parse_page(self, html: str) -> List[Dict[str, Any]]:
         rows = []
+        for row in self._parse_text_cards(html):
+            rows.append(row)
+        if rows:
+            return rows
+
         for table in self.extract_tables(html):
             if len(table) < 2:
                 continue
@@ -265,76 +339,41 @@ class GcoreBrowserCollector(BrowserScraper):
                 ))
         return rows
 
-
-# ---------------------------------------------------------------------------
-# Firmus — Silver tier
-# ---------------------------------------------------------------------------
-class FirmusBrowserCollector(BrowserScraper):
-    name = "firmus"
-    url = "https://firmus.ai/pricing"
-    wait_selector = "[class*='price'], table"
-
-    def parse_page(self, html: str) -> List[Dict[str, Any]]:
+    def _parse_text_cards(self, html: str) -> List[Dict[str, Any]]:
+        lines = self.extract_text_lines(html)
         rows = []
-        for pair in self.extract_gpu_price_pairs(html):
-            rows.append(self.make_row(
-                provider="firmus", instance_type=pair["gpu"],
-                gpu_name=normalize_gpu_name(pair["gpu"]), gpu_count=1,
-                pricing_type="on_demand",
-                price_per_hour=pair["price"], price_per_gpu_hour=pair["price"],
-                available=True,
-            ))
-        return rows
-
-
-# ---------------------------------------------------------------------------
-# Neysa — Bronze tier
-# ---------------------------------------------------------------------------
-class NeysaBrowserCollector(BrowserScraper):
-    name = "neysa"
-    url = "https://www.neysa.ai/pricing"
-    wait_selector = "table, [class*='price']"
-
-    def parse_page(self, html: str) -> List[Dict[str, Any]]:
-        rows = []
-        for table in self.extract_tables(html):
-            if len(table) < 2:
+        gpu_names = {"L40S", "A100", "H100", "H200", "GB200"}
+        in_section = False
+        for i, line in enumerate(lines):
+            if "GPUs for" in line and "AI" in line and "workload" in line:
+                in_section = True
                 continue
-            header = [h.lower() for h in table[0]]
-            gpu_col = next((i for i, h in enumerate(header) if "gpu" in h or "model" in h or "instance" in h), None)
-            price_col = next((i for i, h in enumerate(header) if "price" in h or "$/h" in h or "/hr" in h), None)
-            vram_col = next((i for i, h in enumerate(header) if "vram" in h or "memory" in h), None)
-            if gpu_col is not None and price_col is not None:
-                for row in table[1:]:
-                    if len(row) <= max(gpu_col, price_col):
-                        continue
-                    gpu_raw = row[gpu_col]
-                    pm = re.search(r"\$?([\d.]+)", row[price_col])
-                    if pm:
-                        price = float(pm.group(1))
-                        if price > 0:
-                            vram = 0
-                            if vram_col and vram_col < len(row):
-                                vm = re.search(r"(\d+)", row[vram_col])
-                                if vm:
-                                    vram = int(vm.group(1))
-                            rows.append(self.make_row(
-                                provider="neysa", instance_type=gpu_raw,
-                                gpu_name=normalize_gpu_name(gpu_raw),
-                                gpu_memory_gb=vram, gpu_count=1,
-                                pricing_type="on_demand",
-                                price_per_hour=price, price_per_gpu_hour=price,
-                                available=True,
-                            ))
-        if not rows:
-            for pair in self.extract_gpu_price_pairs(html):
-                rows.append(self.make_row(
-                    provider="neysa", instance_type=pair["gpu"],
-                    gpu_name=normalize_gpu_name(pair["gpu"]), gpu_count=1,
-                    pricing_type="on_demand",
-                    price_per_hour=pair["price"], price_per_gpu_hour=pair["price"],
-                    available=True,
-                ))
+            if in_section and line.startswith("Why choose"):
+                break
+            if not in_section or line not in gpu_names:
+                continue
+            price = None
+            currency = ""
+            for j in range(i + 1, min(i + 6, len(lines))):
+                parsed_price, parsed_currency = _parse_price(lines[j])
+                if parsed_price:
+                    price = parsed_price
+                    currency = parsed_currency
+                    break
+            if not price:
+                continue
+            rows.append(self.make_row(
+                provider="gcore",
+                instance_type=line,
+                gpu_name=normalize_gpu_name(line),
+                gpu_count=1,
+                pricing_type="on_demand",
+                price_per_hour=price,
+                price_per_gpu_hour=price,
+                currency=currency or "USD",
+                available=True,
+                raw_extra=json.dumps({"raw_price_label": "from"}, separators=(",", ":")),
+            ))
         return rows
 
 
@@ -435,6 +474,11 @@ class SaladBrowserCollector(BrowserScraper):
 
     def parse_page(self, html: str) -> List[Dict[str, Any]]:
         rows = []
+        for row in self._parse_text_calculator(html):
+            rows.append(row)
+        if rows:
+            return rows
+
         for table in self.extract_tables(html):
             if len(table) < 2:
                 continue
@@ -468,68 +512,37 @@ class SaladBrowserCollector(BrowserScraper):
                 ))
         return rows
 
-
-# ---------------------------------------------------------------------------
-# Clore.ai — Underperforming tier (GPU marketplace)
-# ---------------------------------------------------------------------------
-class CloreAIBrowserCollector(BrowserScraper):
-    name = "cloreai"
-    url = "https://clore.ai/pricing"
-    wait_selector = "table, [class*='price'], [class*='gpu']"
-
-    def parse_page(self, html: str) -> List[Dict[str, Any]]:
+    def _parse_text_calculator(self, html: str) -> List[Dict[str, Any]]:
         rows = []
-        for table in self.extract_tables(html):
-            if len(table) < 2:
+        lines = self.extract_text_lines(html)
+        in_calculator = False
+        for i, line in enumerate(lines):
+            if line == "SaladCloud Pricing Calculator":
+                in_calculator = True
                 continue
-            header = [h.lower() for h in table[0]]
-            gpu_col = next((i for i, h in enumerate(header) if "gpu" in h or "model" in h), None)
-            price_col = next((i for i, h in enumerate(header) if "price" in h or "$/h" in h or "/hr" in h or "cost" in h), None)
-            if gpu_col is not None and price_col is not None:
-                for row in table[1:]:
-                    if len(row) <= max(gpu_col, price_col):
-                        continue
-                    gpu_raw = row[gpu_col]
-                    pm = re.search(r"\$?([\d.]+)", row[price_col])
-                    if pm:
-                        price = float(pm.group(1))
-                        if price > 0:
-                            rows.append(self.make_row(
-                                provider="cloreai", instance_type=gpu_raw,
-                                gpu_name=normalize_gpu_name(gpu_raw), gpu_count=1,
-                                pricing_type="on_demand",
-                                price_per_hour=price, price_per_gpu_hour=price,
-                                available=True,
-                            ))
-        if not rows:
-            for pair in self.extract_gpu_price_pairs(html):
-                rows.append(self.make_row(
-                    provider="cloreai", instance_type=pair["gpu"],
-                    gpu_name=normalize_gpu_name(pair["gpu"]), gpu_count=1,
-                    pricing_type="on_demand",
-                    price_per_hour=pair["price"], price_per_gpu_hour=pair["price"],
-                    available=True,
-                ))
-        return rows
-
-
-# ---------------------------------------------------------------------------
-# Exabits — Underperforming tier
-# ---------------------------------------------------------------------------
-class ExabitsBrowserCollector(BrowserScraper):
-    name = "exabits"
-    url = "https://www.exabits.ai/pricing"
-    wait_selector = "table, [class*='price']"
-
-    def parse_page(self, html: str) -> List[Dict[str, Any]]:
-        rows = []
-        for pair in self.extract_gpu_price_pairs(html):
+            if in_calculator and line == "Select your priority level":
+                break
+            if not in_calculator or "Series Cards" in line:
+                continue
+            gpu_match = re.search(r"\b((?:RTX|GTX)\s+[A-Z0-9 ]+?)\s*\((\d+)\s*GB\)", line, re.I)
+            if not gpu_match or i + 1 >= len(lines):
+                continue
+            price, currency = _parse_price(lines[i + 1])
+            if not price:
+                continue
+            gpu_raw = gpu_match.group(1).strip()
             rows.append(self.make_row(
-                provider="exabits", instance_type=pair["gpu"],
-                gpu_name=normalize_gpu_name(pair["gpu"]), gpu_count=1,
+                provider="salad",
+                instance_type=gpu_raw,
+                gpu_name=normalize_gpu_name(gpu_raw),
+                gpu_memory_gb=int(gpu_match.group(2)),
+                gpu_count=1,
                 pricing_type="on_demand",
-                price_per_hour=pair["price"], price_per_gpu_hour=pair["price"],
+                price_per_hour=price,
+                price_per_gpu_hour=price,
+                currency=currency or "USD",
                 available=True,
+                raw_extra=json.dumps({"priority": "batch"}, separators=(",", ":")),
             ))
         return rows
 
@@ -565,6 +578,11 @@ class QubridBrowserCollector(BrowserScraper):
 
     def parse_page(self, html: str) -> List[Dict[str, Any]]:
         rows = []
+        for row in self._parse_text_gpu_vms(html):
+            rows.append(row)
+        if rows:
+            return rows
+
         for table in self.extract_tables(html):
             if len(table) < 2:
                 continue
@@ -603,4 +621,41 @@ class QubridBrowserCollector(BrowserScraper):
                     price_per_hour=pair["price"], price_per_gpu_hour=pair["price"],
                     available=True,
                 ))
+        return rows
+
+    def _parse_text_gpu_vms(self, html: str) -> List[Dict[str, Any]]:
+        rows = []
+        lines = self.extract_text_lines(html)
+        in_section = False
+        for i, line in enumerate(lines):
+            if line == "GPU Virtual Machines":
+                in_section = True
+                continue
+            if in_section and line == "Bare Metal Servers":
+                break
+            if not in_section:
+                continue
+            gpu_match = re.search(r"NVIDIA\s+(.+?)\s*\((\d+)GB\)\s*-\s*(\d+)\s*GPUs?", line, re.I)
+            if not gpu_match or i + 1 >= len(lines):
+                continue
+            price, currency = _parse_price(lines[i + 1])
+            if not price:
+                continue
+            cells = [cell.strip() for cell in lines[i + 1].split("\t") if cell.strip()]
+            gpu_count = int(gpu_match.group(3))
+            rows.append(self.make_row(
+                provider="qubrid",
+                instance_type=line,
+                gpu_name=normalize_gpu_name(gpu_match.group(1)),
+                gpu_memory_gb=int(gpu_match.group(2)),
+                gpu_count=gpu_count,
+                vcpus=cells[0] if len(cells) > 0 else "",
+                ram_gb=_parse_memory_gb(cells[1]) if len(cells) > 1 else "",
+                storage_desc=cells[2] if len(cells) > 2 else "",
+                pricing_type="on_demand",
+                price_per_hour=price,
+                price_per_gpu_hour=round(price / gpu_count, 6),
+                currency=currency or "USD",
+                available=True,
+            ))
         return rows

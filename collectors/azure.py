@@ -41,6 +41,8 @@ AZURE_GPU_MAP = {
     "Standard_NC96ads_A100_v4": {"gpu": "A100", "mem": 80, "count": 4, "variant": "PCIe"},
     "Standard_ND96asr_v4":      {"gpu": "A100", "mem": 40, "count": 8, "variant": "SXM4"},
     "Standard_ND96amsr_A100_v4": {"gpu": "A100", "mem": 80, "count": 8, "variant": "SXM4"},
+    "Standard_NC40ads_H100_v5":  {"gpu": "H100", "mem": 94, "count": 1, "variant": "NVL"},
+    "Standard_NC80adis_H100_v5": {"gpu": "H100", "mem": 94, "count": 2, "variant": "NVL"},
     "Standard_ND96isr_H100_v5":  {"gpu": "H100", "mem": 80, "count": 8, "variant": "SXM5"},
     "Standard_ND96isr_H200_v5":  {"gpu": "H200", "mem": 141, "count": 8, "variant": "SXM"},
     "Standard_NV6":         {"gpu": "Tesla M60", "mem": 8, "count": 1, "variant": ""},
@@ -106,6 +108,15 @@ def _classify_pricing_type(sku_name: str, meter_name: str) -> tuple:
     return "on_demand", ""
 
 
+def _normalize_reservation_term(raw: str) -> str:
+    term = raw.strip().lower()
+    if "3" in term or "three" in term:
+        return "3yr"
+    if "1" in term or "one" in term:
+        return "1yr"
+    return raw.strip()
+
+
 class AzureCollector(BaseCollector):
     name = "azure"
     requires_api_key = False
@@ -165,6 +176,8 @@ class AzureCollector(BaseCollector):
         unit = item.get("unitOfMeasure", "")
         currency = item.get("currencyCode", "USD")
         sku_id = item.get("skuId", "")
+        meter_type = item.get("type", "")
+        reservation_term = item.get("reservationTerm", "")
 
         # Skip non-hourly, zero price
         if "Hour" not in unit:
@@ -179,9 +192,17 @@ class AzureCollector(BaseCollector):
         if not gpu_name:
             return None
 
-        pricing_type, commitment = _classify_pricing_type(sku, meter_name)
+        if meter_type.lower() == "reservation" or reservation_term:
+            pricing_type = "reserved"
+            commitment = _normalize_reservation_term(reservation_term)
+        else:
+            pricing_type, commitment = _classify_pricing_type(sku, meter_name)
         gpu_count = gpu_info.get("count", 0)
         price_per_gpu = price / gpu_count if gpu_count > 0 else price
+        hourly_price = 0.0 if pricing_type == "reserved" and reservation_term else price
+        hourly_price_per_gpu = 0.0 if pricing_type == "reserved" and reservation_term else price_per_gpu
+        upfront_price = price if pricing_type == "reserved" and reservation_term else ""
+        upfront_price_per_gpu = price_per_gpu if pricing_type == "reserved" and reservation_term else ""
 
         os_type = "Windows" if "Windows" in product_name else "Linux"
         if "Windows" in meter_name:
@@ -199,14 +220,19 @@ class AzureCollector(BaseCollector):
             geo_group=infer_geo_group(region),
             pricing_type=pricing_type,
             commitment_period=commitment,
-            price_per_hour=price,
-            price_per_gpu_hour=round(price_per_gpu, 6),
+            price_per_hour=hourly_price,
+            price_per_gpu_hour=round(hourly_price_per_gpu, 6),
+            upfront_price=upfront_price,
+            upfront_price_per_gpu=round(upfront_price_per_gpu, 6) if upfront_price_per_gpu != "" else "",
             currency=currency,
             os=os_type,
             available=True,
             raw_extra=json.dumps({
                 "product_name": product_name,
                 "meter_name": meter_name,
+                "type": meter_type,
+                "reservation_term": reservation_term,
+                "unit_of_measure": unit,
                 "sku_id": sku_id,
                 "service_name": item.get("serviceName", ""),
                 "location": item.get("location", ""),

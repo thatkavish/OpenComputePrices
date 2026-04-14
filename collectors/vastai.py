@@ -7,6 +7,7 @@ Requires free API key (VASTAI_API_KEY env var).
 
 import json
 import logging
+import urllib.error
 import urllib.request
 from typing import List, Dict, Any
 
@@ -30,22 +31,14 @@ class VastAICollector(BaseCollector):
 
         logger.info("[vastai] Fetching marketplace offers")
 
-        # Query for GPU offers — broad search
-        payload = json.dumps({
-            "verified": {},
-            "type": "on-demand",
-            "intended_status": "running",
-            "order": [["dph_total", "asc"]],
-            "limit": 5000,
-        }).encode("utf-8")
-
         all_rows = []
 
-        for offer_type in ["on-demand", "interruptible"]:
+        for offer_type, pricing_type in [("ondemand", "on_demand"), ("bid", "spot")]:
             payload = json.dumps({
-                "verified": {},
+                "verified": {"eq": True},
                 "type": offer_type,
-                "intended_status": "running",
+                "rentable": {"eq": True},
+                "rented": {"eq": False},
                 "order": [["dph_total", "asc"]],
                 "limit": 5000,
             }).encode("utf-8")
@@ -63,12 +56,15 @@ class VastAICollector(BaseCollector):
                 )
                 with urllib.request.urlopen(req, timeout=120) as resp:
                     data = json.loads(resp.read().decode())
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")[:500]
+                logger.error(f"[vastai] API request failed for {offer_type}: {e}; body={body}")
+                continue
             except Exception as e:
                 logger.error(f"[vastai] API request failed for {offer_type}: {e}")
                 continue
 
             offers = data.get("offers", [])
-            pricing_type = "on_demand" if offer_type == "on-demand" else "spot"
 
             for offer in offers:
                 row = self._parse_offer(offer, pricing_type)

@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
-from schema import COLUMNS
+from schema import COLUMNS, infer_geo_group, normalize_gpu_name, normalize_provider
 
 
 def _load_dotenv():
@@ -76,18 +76,15 @@ from collectors.massedcompute import MassedComputeCollector
 from collectors.e2e import E2ECollector
 from collectors.voltagepark import VoltageParkCollector
 from collectors.denvr import DenvrCollector
+from collectors.cloreai import CloreAICollector
 from collectors.browser_providers import (
     CoreWeaveBrowserCollector,
     TogetherBrowserCollector,
     HyperstackBrowserCollector,
     GcoreBrowserCollector,
-    FirmusBrowserCollector,
-    NeysaBrowserCollector,
     GMICloudBrowserCollector,
     LightningAIBrowserCollector,
     SaladBrowserCollector,
-    CloreAIBrowserCollector,
-    ExabitsBrowserCollector,
     AethirBrowserCollector,
     QubridBrowserCollector,
 )
@@ -125,18 +122,15 @@ COLLECTORS = {
     "e2e": E2ECollector,
     "voltagepark": VoltageParkCollector,
     "denvr": DenvrCollector,
+    "cloreai": CloreAICollector,
     # --- No auth required (Playwright browser scrapers) ---
     "coreweave": CoreWeaveBrowserCollector,
     "together": TogetherBrowserCollector,
     "hyperstack": HyperstackBrowserCollector,
     "gcore": GcoreBrowserCollector,
-    "firmus": FirmusBrowserCollector,
-    "neysa": NeysaBrowserCollector,
     "gmicloud": GMICloudBrowserCollector,
     "lightningai": LightningAIBrowserCollector,
     "salad": SaladBrowserCollector,
-    "cloreai": CloreAIBrowserCollector,
-    "exabits": ExabitsBrowserCollector,
     "aethir": AethirBrowserCollector,
     "qubrid": QubridBrowserCollector,
     # --- Free API key required ---
@@ -154,12 +148,11 @@ NO_AUTH_COLLECTORS = [
     "getdeploying", "jarvislabs", "thundercompute", "crusoe", "novita",
     "akash", "cudo", "vultr", "paperspace",
     "deepinfra", "linode", "latitude", "massedcompute", "e2e",
-    "voltagepark", "denvr",
+    "voltagepark", "denvr", "cloreai",
 ]
 BROWSER_COLLECTORS = [
-    "coreweave", "together", "hyperstack", "gcore", "firmus",
-    "neysa", "gmicloud", "lightningai", "salad",
-    "cloreai", "exabits", "aethir", "qubrid",
+    "coreweave", "together", "hyperstack", "gcore",
+    "gmicloud", "lightningai", "salad", "aethir", "qubrid",
 ]
 API_KEY_COLLECTORS = [
     "shadeform", "runpod", "vastai", "lambda", "gcp",
@@ -167,6 +160,13 @@ API_KEY_COLLECTORS = [
 ]
 
 BASELINE_STATE_FILENAME = "_baseline_state.json"
+_CURRENCY_CODES = {"USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CNY", "INR", "KRW"}
+_PRICE_UNITS = {"hour", "hr", "gpu_hour", "gpu-hour", "second", "month", "token"}
+_BOOLEANISH = {"true", "false", "1", "0", ""}
+_AZURE_GPU_SPEC_OVERRIDES = {
+    "Standard_NC40ads_H100_v5": {"gpu_name": "H100", "gpu_memory_gb": 94, "gpu_count": 1, "gpu_variant": "NVL"},
+    "Standard_NC80adis_H100_v5": {"gpu_name": "H100", "gpu_memory_gb": 94, "gpu_count": 2, "gpu_variant": "NVL"},
+}
 
 
 def resolve_collector_names(args) -> list[str]:
@@ -298,7 +298,173 @@ def _append_rows(path: str, rows: list[dict]) -> None:
         if not file_exists:
             writer.writeheader()
         for row in rows:
+            writer.writerow(row)
+
+
+def _repair_shifted_tail_row(row: dict) -> bool:
+    """
+    Repair rows written after the upfront-price schema addition under a stale header.
+
+    The telltale shape is currency/price_unit values landing in available/
+    available_count, while the two upfront fields are shifted into currency/
+    price_unit. We can recover fields through tenancy; any values beyond the old
+    tail width were already dropped by the stale-header rewrite.
+    """
+    available = str(row.get("available", "")).strip().upper()
+    price_unit = str(row.get("available_count", "")).strip().lower()
+    os_value = str(row.get("os", "")).strip().lower()
+    if available not in _CURRENCY_CODES or price_unit not in _PRICE_UNITS or os_value not in _BOOLEANISH:
+        return False
+
+    old = {col: row.get(col, "") for col in COLUMNS}
+    row["upfront_price"] = old.get("currency", "")
+    row["upfront_price_per_gpu"] = old.get("price_unit", "")
+    row["currency"] = old.get("available", "")
+    row["price_unit"] = old.get("available_count", "")
+    row["available"] = old.get("os", "")
+    row["available_count"] = old.get("tenancy", "")
+    row["os"] = old.get("pre_installed_sw", "")
+    row["tenancy"] = old.get("raw_extra", "")
+    row["pre_installed_sw"] = ""
+    row["raw_extra"] = ""
+    return True
+
+
+def _normalize_existing_row(row: dict) -> bool:
+    changed = False
+    provider = normalize_provider(row.get("provider", ""))
+    if provider != row.get("provider", ""):
+        row["provider"] = provider
+        changed = True
+    gpu_name = normalize_gpu_name(row.get("gpu_name", ""))
+    if gpu_name != row.get("gpu_name", ""):
+        row["gpu_name"] = gpu_name
+        changed = True
+    geo_group = infer_geo_group(row.get("region", ""), row.get("country", ""))
+    if geo_group != row.get("geo_group", ""):
+        row["geo_group"] = geo_group
+        changed = True
+    if _repair_azure_existing_row(row):
+        changed = True
+    return changed
+
+
+def _parse_float(raw) -> float:
+    try:
+        return float(raw or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _format_float(value: float) -> str:
+    return f"{round(value, 6):.6f}".rstrip("0").rstrip(".") or "0"
+
+
+def _repair_azure_existing_row(row: dict) -> bool:
+    if row.get("source") != "azure" and row.get("provider") != "azure":
+        return False
+
+    changed = False
+    sku = row.get("instance_type", "")
+    spec = _AZURE_GPU_SPEC_OVERRIDES.get(sku)
+    if spec:
+        for field, value in spec.items():
+            if str(row.get(field, "")) != str(value):
+                row[field] = value
+                changed = True
+
+    price_per_hour = _parse_float(row.get("price_per_hour"))
+    price_per_gpu_hour = _parse_float(row.get("price_per_gpu_hour"))
+    if row.get("pricing_type") == "on_demand" and price_per_gpu_hour > 500:
+        row["pricing_type"] = "reserved"
+        row["commitment_period"] = row.get("commitment_period") or "unknown"
+        row["upfront_price"] = row.get("upfront_price") or row.get("price_per_hour", "")
+        row["upfront_price_per_gpu"] = row.get("upfront_price_per_gpu") or row.get("price_per_gpu_hour", "")
+        row["price_per_hour"] = "0"
+        row["price_per_gpu_hour"] = "0"
+        changed = True
+
+    gpu_count = _parse_float(row.get("gpu_count"))
+    if gpu_count <= 0:
+        return changed
+    if row.get("pricing_type") == "reserved" and _parse_float(row.get("upfront_price")) > 0:
+        expected = _format_float(_parse_float(row.get("upfront_price")) / gpu_count)
+        if row.get("upfront_price_per_gpu") != expected:
+            row["upfront_price_per_gpu"] = expected
+            changed = True
+    elif price_per_hour > 0:
+        expected = _format_float(price_per_hour / gpu_count)
+        if row.get("price_per_gpu_hour") != expected:
+            row["price_per_gpu_hour"] = expected
+            changed = True
+    return changed
+
+
+def _should_keep_existing_row(row: dict) -> bool:
+    if str(row.get("pricing_type", "")).lower() == "inference":
+        return True
+    return bool(str(row.get("gpu_name", "")).strip())
+
+
+def repair_schema_drift_csv(path: str) -> tuple[int, int, int]:
+    """Repair shifted tail columns and canonicalize legacy aliases in one CSV."""
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        return 0, 0, 0
+
+    fd, tmp_path = tempfile.mkstemp(prefix="collect_repair_", suffix=".csv", dir=os.path.dirname(path) or None)
+    os.close(fd)
+    shifted = 0
+    normalized = 0
+    dropped = 0
+    changed_rows = 0
+    try:
+        with open(path, newline="", encoding="utf-8") as src, open(tmp_path, "w", newline="", encoding="utf-8") as dst:
+            reader = csv.DictReader(src)
+            writer = csv.DictWriter(dst, fieldnames=COLUMNS, extrasaction="ignore")
+            writer.writeheader()
+            for row in reader:
+                changed = False
+                if _repair_shifted_tail_row(row):
+                    shifted += 1
+                    changed = True
+                if _normalize_existing_row(row):
+                    normalized += 1
+                    changed = True
+                if not _should_keep_existing_row(row):
+                    dropped += 1
+                    changed = True
+                    changed_rows += 1
+                    continue
+                if changed:
+                    changed_rows += 1
                 writer.writerow(row)
+
+        if changed_rows:
+            os.replace(tmp_path, path)
+        return shifted, normalized, dropped
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def repair_schema_drift_in_data_dir(data_dir: str) -> int:
+    """Repair known shifted-tail schema drift across CSVs in a data directory."""
+    total_shifted = 0
+    total_normalized = 0
+    total_dropped = 0
+    if not os.path.isdir(data_dir):
+        return 0
+    for fname in sorted(os.listdir(data_dir)):
+        if not fname.endswith(".csv"):
+            continue
+        shifted, normalized, dropped = repair_schema_drift_csv(os.path.join(data_dir, fname))
+        if shifted or normalized or dropped:
+            logger.info(f"[repair] {fname}: shifted={shifted:,}, normalized={normalized:,}, dropped={dropped:,}")
+            total_shifted += shifted
+            total_normalized += normalized
+            total_dropped += dropped
+    logger.info(f"[repair] Done: shifted={total_shifted:,}, normalized={total_normalized:,}, dropped={total_dropped:,}")
+    return total_shifted + total_normalized + total_dropped
 
 
 def _load_source_rows_for_dates(data_dir: str, snapshot_dates: set[str]) -> list[dict]:
@@ -573,6 +739,7 @@ def main():
     parser.add_argument("--skip-prune", action="store_true", help="Skip CSV prune/dedup retention pass")
     parser.add_argument("--no-unify", action="store_true", help="Skip building the unified master database")
     parser.add_argument("--finalize-only", action="store_true", help="Skip collectors and only prune/unify existing data")
+    parser.add_argument("--repair-schema-drift", action="store_true", help="Repair known shifted-tail CSV schema drift before finalization")
     args = parser.parse_args()
 
     if args.list:
@@ -593,10 +760,17 @@ def main():
         return
 
     if args.finalize_only:
+        if args.repair_schema_drift:
+            from collectors.base import DATA_DIR
+            repair_schema_drift_in_data_dir(DATA_DIR)
         finalize_existing_data(skip_prune=args.skip_prune, no_unify=args.no_unify)
         return
 
     names = resolve_collector_names(args)
+
+    if args.repair_schema_drift:
+        from collectors.base import DATA_DIR
+        repair_schema_drift_in_data_dir(DATA_DIR)
 
     now = datetime.now(timezone.utc)
     print(f"\n{'='*70}")
