@@ -94,6 +94,14 @@ LLM inference pricing (per-token) from inference providers and APIs.
 | Pricing Unit     | Per-token (input/output)                     |
 | Model Categories | Chat, embeddings, vision, code generation    |
 
+### `dashboard_gpu_daily.json.gz` — OpenSemi Dashboard Asset
+
+The `latest-data` release also publishes a standalone gzipped JSON asset for OpenSemi dashboard ingestion:
+
+- Built from the canonical `_master.csv` dataset, not the monthly archives
+- Includes the full daily chart series, latest pricing table, GPU catalog, normalization, and exclusion summaries
+- Refreshed on every `latest-data` update and uploaded alongside `data.tar.gz`
+
 ### Database Separation
 
 The databases are automatically separated during the unification step (`unify.py`):

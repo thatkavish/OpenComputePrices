@@ -191,6 +191,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          TITLE="GPU Pricing Data — $(date -u '+%Y-%m-%d %H:%M UTC')"
+
+          python dashboard_asset.py \
+            --input data/_master.csv \
+            --output data/dashboard_gpu_daily.json.gz \
+            --generated-at "$DATE" \
+            --release-tag "$DATA_TAG" \
+            --release-name "$TITLE" \
+            --release-updated-at "$DATE"
 
           # Upload expired rows as a separate archive (if any were pruned)
           if [ -f data/_expired.csv ] && [ -s data/_expired.csv ]; then
@@ -211,15 +220,16 @@ jobs:
           fi
 
           ROW_COUNT=$(cat data/*.csv 2>/dev/null | grep -cv '^snapshot_date' || echo 0)
-          tar czf /tmp/data.tar.gz --exclude='_expired.csv' -C data/ .
+          tar czf /tmp/data.tar.gz --exclude='_expired.csv' --exclude='dashboard_gpu_daily.json.gz' -C data/ .
           SIZE=$(du -h /tmp/data.tar.gz | cut -f1)
+          DASHBOARD_SIZE=$(du -h data/dashboard_gpu_daily.json.gz | cut -f1)
           echo "Data archive: ${SIZE} (${ROW_COUNT} rows)"
-          TITLE="GPU Pricing Data — $(date -u '+%Y-%m-%d %H:%M UTC')"
+          echo "Dashboard asset: ${DASHBOARD_SIZE}"
           if gh release view "$DATA_TAG" &>/dev/null; then
-            gh release upload "$DATA_TAG" /tmp/data.tar.gz --clobber
+            gh release upload "$DATA_TAG" /tmp/data.tar.gz data/dashboard_gpu_daily.json.gz --clobber
             gh release edit "$DATA_TAG" --title "${TITLE}" --notes "Last updated: ${DATE} — ${ROW_COUNT} rows"
           else
-            gh release create "$DATA_TAG" /tmp/data.tar.gz \
+            gh release create "$DATA_TAG" /tmp/data.tar.gz data/dashboard_gpu_daily.json.gz \
               --title "${TITLE}" \
               --notes "Last updated: ${DATE} — ${ROW_COUNT} rows"
           fi

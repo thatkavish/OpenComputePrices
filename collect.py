@@ -167,6 +167,7 @@ API_KEY_COLLECTORS = [
 ]
 
 BASELINE_STATE_FILENAME = "_baseline_state.json"
+DEFAULT_DASHBOARD_ASSET_FILENAME = "dashboard_gpu_daily.json.gz"
 _CURRENCY_CODES = {"USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CNY", "INR", "KRW"}
 _PRICE_UNITS = {"hour", "hr", "gpu_hour", "gpu-hour", "second", "month", "token"}
 _BOOLEANISH = {"true", "false", "1", "0", ""}
@@ -698,6 +699,26 @@ def _sort_inference_rows(rows: list[dict]) -> list[dict]:
     return rows
 
 
+def _generate_dashboard_asset(data_dir: str) -> None:
+    master_path = os.path.join(data_dir, "_master.csv")
+    if not os.path.isfile(master_path):
+        logger.info("No master CSV found; skipping dashboard asset generation")
+        return
+    try:
+        from dashboard_asset import build_dashboard_asset_from_master
+
+        output_path = os.path.join(data_dir, DEFAULT_DASHBOARD_ASSET_FILENAME)
+        asset = build_dashboard_asset_from_master(master_csv_path=master_path, output_path=output_path)
+        logger.info(
+            "Dashboard asset ready: %s chart GPUs, %s latest rows → %s",
+            asset["coverage"]["chart_gpu_count"],
+            asset["coverage"]["latest_pricing_rows"],
+            output_path,
+        )
+    except Exception as e:
+        logger.error(f"Dashboard asset generation failed: {e}", exc_info=True)
+
+
 def _incremental_finalize_existing_data(data_dir: str, no_unify: bool = False) -> bool:
     baseline = _load_baseline_state(data_dir)
     sources_state = baseline.get("sources", {})
@@ -812,7 +833,10 @@ def finalize_existing_data(skip_prune: bool = False, no_unify: bool = False) -> 
     if not skip_prune:
         has_baseline_state = bool(_load_baseline_state(DATA_DIR).get("sources"))
         if has_baseline_state:
-            return _incremental_finalize_existing_data(DATA_DIR, no_unify=no_unify)
+            finalized = _incremental_finalize_existing_data(DATA_DIR, no_unify=no_unify)
+            if finalized and not no_unify:
+                _generate_dashboard_asset(DATA_DIR)
+            return finalized
 
     if not skip_prune:
         logger.info("Pruning CSVs (dedup + retention)...")
@@ -840,6 +864,7 @@ def finalize_existing_data(skip_prune: bool = False, no_unify: bool = False) -> 
             unified_inference = unify(inference_rows, stats=False)
             save_inference(unified_inference)
             logger.info(f"Inference database: {len(unified_inference):,} rows → {INFERENCE_PATH}")
+        _generate_dashboard_asset(DATA_DIR)
     except Exception as e:
         logger.error(f"Unification failed: {e}", exc_info=True)
 

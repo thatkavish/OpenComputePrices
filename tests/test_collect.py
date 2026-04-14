@@ -1,5 +1,6 @@
 import argparse
 import csv
+import gzip
 import io
 import json
 import os
@@ -282,3 +283,11 @@ class CollectTests(unittest.TestCase):
             self.assertEqual(rows[1]["price_per_hour"], "11.0")
             self.assertEqual(rows[1]["snapshot_date"], "2099-01-01")
             self.assertFalse(os.path.exists(os.path.join(tmpdir, "_baseline_state.json")))
+
+            dashboard_path = os.path.join(tmpdir, "dashboard_gpu_daily.json.gz")
+            self.assertTrue(os.path.isfile(dashboard_path))
+            with gzip.open(dashboard_path, "rt", encoding="utf-8") as f:
+                dashboard = json.load(f)
+
+            self.assertEqual(dashboard["coverage"]["max_date"], "2099-01-01")
+            self.assertEqual(dashboard["coverage"]["latest_pricing_rows"], 1)
