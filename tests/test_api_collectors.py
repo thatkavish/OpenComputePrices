@@ -36,7 +36,7 @@ class APICollectorTests(unittest.TestCase):
         self.assertEqual(payloads[0]["rentable"], {"eq": True})
         self.assertEqual(payloads[0]["rented"], {"eq": False})
 
-    def test_cloreai_marketplace_daily_usd_prices_are_normalized_to_hourly(self):
+    def test_cloreai_marketplace_hourly_usd_prices_are_preserved(self):
         rows = CloreAICollector()._parse_server({
             "id": 123,
             "rented": False,
@@ -56,7 +56,7 @@ class APICollectorTests(unittest.TestCase):
         self.assertEqual(rows[0]["pricing_type"], "on_demand")
         self.assertEqual(rows[0]["gpu_name"], "RTX 5090")
         self.assertEqual(rows[0]["gpu_count"], 2)
-        self.assertEqual(rows[0]["price_per_hour"], 0.5)
-        self.assertEqual(rows[0]["price_per_gpu_hour"], 0.25)
+        self.assertEqual(rows[0]["price_per_hour"], 12.0)
+        self.assertEqual(rows[0]["price_per_gpu_hour"], 6.0)
         self.assertEqual(rows[1]["pricing_type"], "spot")
-        self.assertEqual(rows[1]["price_per_hour"], 0.25)
+        self.assertEqual(rows[1]["price_per_hour"], 6.0)

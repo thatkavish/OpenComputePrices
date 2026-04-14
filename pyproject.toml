@@ -29,7 +29,6 @@ dependencies = []
 [tool.setuptools]
 py-modules = [
   "collect",
-  "dashboard_asset",
   "release_data",
   "schema",
   "summary",

@@ -167,7 +167,6 @@ API_KEY_COLLECTORS = [
 ]
 
 BASELINE_STATE_FILENAME = "_baseline_state.json"
-DEFAULT_DASHBOARD_ASSET_FILENAME = "dashboard_gpu_daily.json.gz"
 _CURRENCY_CODES = {"USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CNY", "INR", "KRW"}
 _PRICE_UNITS = {"hour", "hr", "gpu_hour", "gpu-hour", "second", "month", "token"}
 _BOOLEANISH = {"true", "false", "1", "0", ""}
@@ -382,6 +381,8 @@ def _normalize_existing_row(row: dict) -> bool:
         changed = True
     if _repair_azure_existing_row(row):
         changed = True
+    if _repair_clore_existing_row(row):
+        changed = True
     return changed
 
 
@@ -507,6 +508,53 @@ def _repair_azure_existing_row(row: dict) -> bool:
         if row.get("price_per_gpu_hour") != expected:
             row["price_per_gpu_hour"] = expected
             changed = True
+    return changed
+
+
+def _repair_clore_existing_row(row: dict) -> bool:
+    if row.get("source") != "cloreai" and row.get("provider") != "cloreai":
+        return False
+
+    raw_extra = _parse_raw_extra_dict(row.get("raw_extra", ""))
+    source_price = _parse_float(raw_extra.get("source_price_usd"))
+    source_unit = str(raw_extra.get("source_price_unit", "")).strip().lower()
+    legacy_price = _parse_float(raw_extra.get("daily_usd"))
+    changed = False
+
+    if legacy_price > 0:
+        source_price = legacy_price
+        source_unit = "hour"
+        raw_extra.pop("daily_usd", None)
+        raw_extra["source_price_usd"] = legacy_price
+        raw_extra["source_price_unit"] = "hour"
+        changed = True
+
+    if source_price <= 0 or source_unit not in {"hour", "hr", "hourly"}:
+        if changed:
+            row["raw_extra"] = _dump_raw_extra_dict(raw_extra, row.get("raw_extra", ""))
+        return changed
+
+    price_per_hour = _parse_float(row.get("price_per_hour"))
+    gpu_count = _parse_float(row.get("gpu_count")) or 1.0
+    if gpu_count <= 0:
+        gpu_count = 1.0
+    expected_per_gpu = source_price / gpu_count
+    price_per_gpu_hour = _parse_float(row.get("price_per_gpu_hour"))
+
+    if price_per_hour > 0 and abs((price_per_hour * 24) - source_price) <= 1e-4:
+        corrected = _format_float(source_price)
+        if row.get("price_per_hour") != corrected:
+            row["price_per_hour"] = corrected
+            changed = True
+
+    if price_per_gpu_hour > 0 and abs((price_per_gpu_hour * 24) - expected_per_gpu) <= 1e-4:
+        corrected = _format_float(expected_per_gpu)
+        if row.get("price_per_gpu_hour") != corrected:
+            row["price_per_gpu_hour"] = corrected
+            changed = True
+
+    if changed:
+        row["raw_extra"] = _dump_raw_extra_dict(raw_extra, row.get("raw_extra", ""))
     return changed
 
 
@@ -699,33 +747,6 @@ def _sort_inference_rows(rows: list[dict]) -> list[dict]:
     return rows
 
 
-def _generate_dashboard_asset(data_dir: str) -> None:
-    master_path = os.path.join(data_dir, "_master.csv")
-    if not os.path.isfile(master_path):
-        logger.info("No master CSV found; skipping dashboard asset generation")
-        return
-    try:
-        from dashboard_asset import build_dashboard_asset_from_master
-
-        output_path = os.path.join(data_dir, DEFAULT_DASHBOARD_ASSET_FILENAME)
-        asset = build_dashboard_asset_from_master(
-            master_csv_path=master_path,
-            output_path=output_path,
-            generated_at=os.environ.get("OCP_DASHBOARD_ASSET_GENERATED_AT", ""),
-            release_tag=os.environ.get("OCP_DASHBOARD_ASSET_RELEASE_TAG", "latest-data"),
-            release_name=os.environ.get("OCP_DASHBOARD_ASSET_RELEASE_NAME", ""),
-            release_updated_at=os.environ.get("OCP_DASHBOARD_ASSET_RELEASE_UPDATED_AT", ""),
-        )
-        logger.info(
-            "Dashboard asset ready: %s chart GPUs, %s latest rows → %s",
-            asset["coverage"]["chart_gpu_count"],
-            asset["coverage"]["latest_pricing_rows"],
-            output_path,
-        )
-    except Exception as e:
-        logger.error(f"Dashboard asset generation failed: {e}", exc_info=True)
-
-
 def _incremental_finalize_existing_data(data_dir: str, no_unify: bool = False) -> bool:
     baseline = _load_baseline_state(data_dir)
     sources_state = baseline.get("sources", {})
@@ -840,10 +861,7 @@ def finalize_existing_data(skip_prune: bool = False, no_unify: bool = False) -> 
     if not skip_prune:
         has_baseline_state = bool(_load_baseline_state(DATA_DIR).get("sources"))
         if has_baseline_state:
-            finalized = _incremental_finalize_existing_data(DATA_DIR, no_unify=no_unify)
-            if finalized and not no_unify:
-                _generate_dashboard_asset(DATA_DIR)
-            return finalized
+            return _incremental_finalize_existing_data(DATA_DIR, no_unify=no_unify)
 
     if not skip_prune:
         logger.info("Pruning CSVs (dedup + retention)...")
@@ -871,7 +889,6 @@ def finalize_existing_data(skip_prune: bool = False, no_unify: bool = False) -> 
             unified_inference = unify(inference_rows, stats=False)
             save_inference(unified_inference)
             logger.info(f"Inference database: {len(unified_inference):,} rows → {INFERENCE_PATH}")
-        _generate_dashboard_asset(DATA_DIR)
     except Exception as e:
         logger.error(f"Unification failed: {e}", exc_info=True)
 

@@ -1,6 +1,5 @@
 import argparse
 import csv
-import gzip
 import io
 import json
 import os
@@ -196,6 +195,27 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(row["gpu_memory_gb"], 80)
         self.assertIn('"purchase_option":"capacity_block"', row["raw_extra"])
 
+    def test_normalize_existing_row_repairs_clore_hourly_prices(self):
+        row = self._row(
+            source="cloreai",
+            provider="cloreai",
+            instance_type="94159",
+            gpu_name="V100",
+            gpu_count="8",
+            country="US",
+            region="US",
+            price_per_hour="0.21875",
+            price_per_gpu_hour="0.027344",
+            raw_extra='{"daily_usd":5.25,"pricing_source":"on_demand_usd","gpu_raw":"8x Tesla V100"}',
+        )
+
+        self.assertTrue(collect._normalize_existing_row(row))
+        self.assertEqual(row["price_per_hour"], "5.25")
+        self.assertEqual(row["price_per_gpu_hour"], "0.65625")
+        self.assertIn('"source_price_usd":5.25', row["raw_extra"])
+        self.assertIn('"source_price_unit":"hour"', row["raw_extra"])
+        self.assertNotIn("daily_usd", row["raw_extra"])
+
     def test_should_keep_existing_row_drops_implausible_akash_gtx1070ti_outlier(self):
         row = self._row(
             source="akash",
@@ -283,11 +303,3 @@ class CollectTests(unittest.TestCase):
             self.assertEqual(rows[1]["price_per_hour"], "11.0")
             self.assertEqual(rows[1]["snapshot_date"], "2099-01-01")
             self.assertFalse(os.path.exists(os.path.join(tmpdir, "_baseline_state.json")))
-
-            dashboard_path = os.path.join(tmpdir, "dashboard_gpu_daily.json.gz")
-            self.assertTrue(os.path.isfile(dashboard_path))
-            with gzip.open(dashboard_path, "rt", encoding="utf-8") as f:
-                dashboard = json.load(f)
-
-            self.assertEqual(dashboard["coverage"]["max_date"], "2099-01-01")
-            self.assertEqual(dashboard["coverage"]["latest_pricing_rows"], 1)

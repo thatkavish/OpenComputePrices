@@ -2,7 +2,7 @@
 Clore.ai marketplace GPU pricing collector.
 
 Uses the public Clore.ai marketplace API instead of the removed /pricing page.
-The marketplace API reports USD prices per day, so rows normalize to USD/hour.
+The marketplace API's USD fields are already hourly marketplace quotes.
 """
 
 import http.client
@@ -38,7 +38,7 @@ def _parse_gpu(specs: dict) -> tuple[str, int]:
     return gpu_name, count
 
 
-def _daily_usd(price: dict, key: str) -> float:
+def _marketplace_usd(price: dict, key: str) -> float:
     usd = price.get("usd", {}) or {}
     value = usd.get(key)
     if value in (None, "") and key == "spot":
@@ -89,10 +89,9 @@ class CloreAICollector(BaseCollector):
         price = server.get("price", {}) or {}
         rows = []
         for price_key, pricing_type in [("on_demand_usd", "on_demand"), ("spot", "spot")]:
-            daily = _daily_usd(price, price_key)
-            if daily <= 0:
+            hourly = _marketplace_usd(price, price_key)
+            if hourly <= 0:
                 continue
-            hourly = daily / 24
             rows.append(self.make_row(
                 provider="cloreai",
                 instance_type=str(server.get("id", "")),
@@ -110,7 +109,8 @@ class CloreAICollector(BaseCollector):
                 available=not server.get("rented", False),
                 raw_extra=json.dumps({
                     "server_id": server.get("id", ""),
-                    "daily_usd": daily,
+                    "source_price_usd": hourly,
+                    "source_price_unit": "hour",
                     "pricing_source": price_key,
                     "reliability": server.get("reliability", ""),
                     "rating": server.get("rating", ""),
