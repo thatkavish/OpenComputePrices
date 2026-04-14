@@ -66,6 +66,35 @@ def _build_aws_csv(rows):
 
 
 class AWSCollectorTests(unittest.TestCase):
+    def test_capacity_block_rows_are_kept_but_classified_as_reserved(self):
+        csv_text = _build_aws_csv([
+            [
+                "sku1", "offer1", "rate1", "OnDemand", "$55.165 per On Demand SUSE p5.48xlarge Instance Hour",
+                "2026-04-01T00:00:00Z", "", "", "Hrs", "55.165", "USD",
+                "Compute Instance", "us-east-1", "US East (N. Virginia)", "p5.48xlarge",
+                "", "", "", "SUSE", "Shared", "NA",
+                "192", "768 GiB", "2 x 3800 NVMe SSD", "100 Gigabit", "8", "Used",
+            ],
+            [
+                "sku2", "offer2", "rate2", "OnDemand", "$0.125 per Capacity Block SUSE p5.48xlarge Instance Hour",
+                "2026-04-01T00:00:00Z", "", "", "Hrs", "0.125", "USD",
+                "Compute Instance", "us-east-1", "US East (N. Virginia)", "p5.48xlarge",
+                "", "", "", "SUSE", "Shared", "NA",
+                "192", "768 GiB", "2 x 3800 NVMe SSD", "100 Gigabit", "8", "Used",
+            ],
+        ])
+
+        with mock.patch("collectors.aws.urllib.request.urlopen", return_value=_FakeHTTPResponse(csv_text)):
+            rows = AWSCollector()._fetch_region("us-east-1")
+
+        self.assertEqual(len(rows), 2)
+        by_commitment = {row["commitment_period"]: row for row in rows}
+        self.assertEqual(by_commitment[""]["pricing_type"], "on_demand")
+        self.assertEqual(by_commitment[""]["price_per_gpu_hour"], 6.895625)
+        self.assertEqual(by_commitment["capacity_block"]["pricing_type"], "reserved")
+        self.assertEqual(by_commitment["capacity_block"]["price_per_gpu_hour"], 0.015625)
+        self.assertIn('"billing_model":"capacity_block"', by_commitment["capacity_block"]["raw_extra"])
+
     def test_fetch_region_combines_hourly_and_upfront_reserved_components(self):
         csv_text = _build_aws_csv([
             [
@@ -202,4 +231,3 @@ class AWSCollectorTests(unittest.TestCase):
                 kept = list(csv.DictReader(f))
 
         self.assertEqual(len(kept), 2)
-

@@ -12,10 +12,12 @@ from typing import List, Dict, Any, Optional
 from schema import (
     COLUMNS,
     infer_geo_group,
+    normalize_gpu_memory_gb,
     normalize_gpu_name,
     normalize_gpu_variant,
     normalize_pricing_type,
     normalize_provider,
+    normalize_region,
 )
 
 logger = logging.getLogger(__name__)
@@ -112,8 +114,21 @@ class BaseCollector:
         # Normalize terminology across providers
         row["provider"] = normalize_provider(row["provider"])
         row["gpu_name"] = normalize_gpu_name(row["gpu_name"])
+        row["gpu_memory_gb"] = normalize_gpu_memory_gb(
+            row["gpu_memory_gb"],
+            row["gpu_name"],
+            row["gpu_count"],
+            row["gpu_variant"],
+        )
         row["pricing_type"] = normalize_pricing_type(row["pricing_type"])
         row["gpu_variant"] = normalize_gpu_variant(row["gpu_variant"])
+        row["region"] = normalize_region(
+            row["region"],
+            row["provider"],
+            row["country"],
+            row["raw_extra"],
+            row["source"],
+        )
         row["geo_group"] = infer_geo_group(row["region"], row["country"])
         return row
 

@@ -178,6 +178,35 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(row["upfront_price"], "42066.0")
         self.assertEqual(row["upfront_price_per_gpu"], "21033")
 
+    def test_normalize_existing_row_repairs_aws_capacity_block(self):
+        row = self._row(
+            source="aws",
+            provider="aws",
+            gpu_name="H100",
+            gpu_memory_gb="H100",
+            price_per_hour="0.125",
+            price_per_gpu_hour="0.015625",
+            raw_extra='{"capacity_status":"Used","location":"US East (N. Virginia)"}',
+        )
+
+        self.assertTrue(collect._normalize_existing_row(row))
+        self.assertEqual(row["pricing_type"], "reserved")
+        self.assertEqual(row["commitment_period"], "capacity_block")
+        self.assertEqual(row["gpu_memory_gb"], 80)
+        self.assertIn('"purchase_option":"capacity_block"', row["raw_extra"])
+
+    def test_should_keep_existing_row_drops_implausible_akash_gtx1070ti_outlier(self):
+        row = self._row(
+            source="akash",
+            provider="akash",
+            instance_type="gtx1070ti_PCIe_avg",
+            gpu_name="GTX 1070 Ti",
+            price_per_hour="55.83",
+            price_per_gpu_hour="55.83",
+        )
+
+        self.assertFalse(collect._should_keep_existing_row(row))
+
     def test_incremental_finalize_rebuilds_only_affected_snapshot_dates(self):
         preserved_master_row = self._row(
             snapshot_date="2098-12-31",

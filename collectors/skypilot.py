@@ -13,7 +13,7 @@ import urllib.request
 from typing import List, Dict, Any
 
 from collectors.base import BaseCollector
-from schema import normalize_gpu_name, infer_geo_group
+from schema import infer_geo_group, normalize_gpu_memory_gb, normalize_gpu_name
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,11 @@ class SkyPilotCollector(BaseCollector):
             vcpus = record.get("vCPUs", "") or record.get("cpus", "")
             ram = record.get("MemoryGiB", "") or record.get("memory", "")
             gpu_count = record.get("AcceleratorCount", "") or record.get("accelerator_count", "")
-            gpu_mem = record.get("GpuInfo", "") or record.get("accelerator_memory", "")
+            gpu_mem = normalize_gpu_memory_gb(
+                record.get("GpuInfo", "") or record.get("accelerator_memory", ""),
+                gpu_name,
+                gpu_count,
+            )
 
             try:
                 gpu_count_int = int(float(gpu_count)) if gpu_count else 0

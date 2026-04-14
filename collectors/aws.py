@@ -124,6 +124,22 @@ def _fetch_json(url: str) -> dict:
         return json.loads(resp.read().decode())
 
 
+def _classify_price_description(price_description: str, capacity_status: str) -> str:
+    desc = (price_description or "").lower()
+    status = (capacity_status or "").lower()
+    if "capacity block" in desc:
+        return "capacity_block"
+    if "unused reservation" in desc or status == "unusedcapacityreservation":
+        return "capacity_reservation"
+    if "reservation" in desc or status == "allocatedcapacityreservation":
+        return "capacity_reservation"
+    if "dedicated" in desc:
+        return "dedicated"
+    if "on demand" in desc:
+        return "on_demand"
+    return "other"
+
+
 class AWSCollector(BaseCollector):
     name = "aws"
     requires_api_key = False
@@ -232,14 +248,17 @@ class AWSCollector(BaseCollector):
             if component_price < 0:
                 continue
 
-            offer_key = tuple(_f(name) for name in AWS_OFFER_KEY_FIELDS)
+            capacity_status = _f("CapacityStatus")
+            billing_model = _classify_price_description(_f("PriceDescription"), capacity_status)
+            offer_key = tuple(_f(name) for name in AWS_OFFER_KEY_FIELDS) + (billing_model,)
             offer = offers.setdefault(offer_key, {
                 "instance_type": instance_type,
                 "family": fam,
                 "term_type": term_type,
                 "region": _f("Region Code") or region,
                 "location": _f("Location"),
-                "capacity_status": _f("CapacityStatus"),
+                "capacity_status": capacity_status,
+                "billing_model": billing_model,
                 "effective_date": _f("EffectiveDate"),
                 "os": _f("Operating System"),
                 "tenancy": _f("Tenancy"),
@@ -286,7 +305,16 @@ class AWSCollector(BaseCollector):
                 except (ValueError, TypeError):
                     ram_gb = ""
 
-            pricing_type = "on_demand" if offer["term_type"] == "OnDemand" else "reserved"
+            billing_model = offer.get("billing_model", "")
+            pricing_type = "on_demand"
+            commitment_period = offer["lease_length"]
+            purchase_option = offer["purchase_option"]
+            if offer["term_type"] == "Reserved" or billing_model in {"capacity_block", "capacity_reservation"}:
+                pricing_type = "reserved"
+                if not commitment_period:
+                    commitment_period = "capacity_block" if billing_model == "capacity_block" else "capacity_reservation"
+                if not purchase_option and billing_model in {"capacity_block", "capacity_reservation"}:
+                    purchase_option = billing_model
 
             rows.append(self.make_row(
                 provider="aws",
@@ -303,7 +331,7 @@ class AWSCollector(BaseCollector):
                 region=offer["region"],
                 geo_group=infer_geo_group(offer["region"]),
                 pricing_type=pricing_type,
-                commitment_period=offer["lease_length"],
+                commitment_period=commitment_period,
                 price_per_hour=price,
                 price_per_gpu_hour=round(price_per_gpu, 6),
                 upfront_price=upfront_price,
@@ -314,9 +342,10 @@ class AWSCollector(BaseCollector):
                 available=True,
                 raw_extra=json.dumps({
                     "capacity_status": offer["capacity_status"],
+                    "billing_model": billing_model,
                     "effective_date": offer["effective_date"],
                     "location": offer["location"],
-                    "purchase_option": offer["purchase_option"],
+                    "purchase_option": purchase_option,
                     "offering_class": offer["offering_class"],
                 }, separators=(",", ":")),
             ))

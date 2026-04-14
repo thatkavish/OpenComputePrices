@@ -1,6 +1,12 @@
 import unittest
 
-from schema import infer_geo_group, normalize_gpu_name, normalize_provider
+from schema import (
+    infer_geo_group,
+    normalize_gpu_memory_gb,
+    normalize_gpu_name,
+    normalize_provider,
+    normalize_region,
+)
 
 
 class SchemaNormalizationTests(unittest.TestCase):
@@ -55,3 +61,18 @@ class SchemaNormalizationTests(unittest.TestCase):
                 self.assertEqual(infer_geo_group(raw), expected)
 
         self.assertEqual(infer_geo_group("", "NL"), "Europe")
+
+    def test_gpu_memory_is_normalized_from_skypilot_gpuinfo_and_aliases(self):
+        gpu_info = "{'Gpus': [{'Name': 'H100', 'Manufacturer': 'NVIDIA', 'Count': 8, 'MemoryInfo': {'SizeInMiB': 81920}}], 'TotalGpuMemoryInMiB': 655360}"
+        self.assertEqual(normalize_gpu_memory_gb(gpu_info, "H100", 8), 80)
+        self.assertEqual(normalize_gpu_memory_gb("H100", "H100", 1), 80)
+        self.assertEqual(normalize_gpu_memory_gb("A100 80GB", "A100", 1), 80)
+        self.assertEqual(normalize_gpu_memory_gb("A100 40GB", "A100", 1), 40)
+        self.assertEqual(normalize_gpu_memory_gb("nonsense", "A100", 1), "")
+
+    def test_region_is_backfilled_from_provider_defaults_and_raw_extra(self):
+        self.assertEqual(normalize_region("", "akash", "", ""), "global")
+        self.assertEqual(normalize_region("", "oracle", "", ""), "global")
+        self.assertEqual(normalize_region("", "vultr", "", '{"locations":["ewr","nrt"]}'), "ewr")
+        self.assertEqual(normalize_region("", "runpod", "US", ""), "US")
+        self.assertEqual(normalize_region("", "aws", "", "", "getdeploying"), "global")

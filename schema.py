@@ -5,6 +5,8 @@ Every collector normalizes its output to this schema before writing.
 Maximum granularity: every dimension that affects price gets its own column.
 """
 
+import ast
+import json
 import re
 
 # Canonical column order for all output CSVs
@@ -189,6 +191,52 @@ INVALID_GPU_NAMES = {
     "unspecified",
 }
 
+GPU_MEMORY_GB_MAP = {
+    "A10": 24,
+    "A10G": 24,
+    "A16": 16,
+    "A40": 48,
+    "B200": 192,
+    "GB200": 192,
+    "GH200": 96,
+    "H100": 80,
+    "H200": 141,
+    "K80": 12,
+    "L4": 24,
+    "L40": 48,
+    "L40S": 48,
+    "P4": 8,
+    "P40": 24,
+    "P100": 16,
+    "RTX 3070": 8,
+    "RTX 3080": 10,
+    "RTX 3090": 24,
+    "RTX 4080": 16,
+    "RTX 4090": 24,
+    "RTX 5090": 32,
+    "T4": 16,
+    "T4G": 16,
+}
+
+GLOBAL_REGION_PROVIDERS = {
+    "aethir",
+    "akash",
+    "coreweave",
+    "crusoe",
+    "denvr",
+    "e2e",
+    "getdeploying",
+    "gmicloud",
+    "jarvislabs",
+    "latitude",
+    "linode",
+    "massedcompute",
+    "oracle",
+    "paperspace",
+    "thundercompute",
+    "voltagepark",
+}
+
 # Regex patterns for fallback normalization
 _GPU_REGEX_PATTERNS = [
     (re.compile(r"rtx\s*pro\s*6000\s*blackwell\s*max[-\s]*q\s*workstation\s*edition", re.I),
@@ -268,6 +316,132 @@ def normalize_gpu_name(raw: str) -> str:
             return builder(m)
 
     return raw.strip()
+
+
+def _parse_numeric(raw):
+    if isinstance(raw, (int, float)):
+        return raw
+    try:
+        return float(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_number(value):
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+def _parse_gpu_info_memory_gb(raw, gpu_count=0):
+    if not raw:
+        return None
+    payload = raw
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text or text[0] not in "{[":
+            return None
+        try:
+            payload = ast.literal_eval(text)
+        except (SyntaxError, ValueError):
+            try:
+                payload = json.loads(text)
+            except (TypeError, ValueError):
+                return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    gpus = payload.get("Gpus") or payload.get("gpus") or []
+    if isinstance(gpus, list) and gpus:
+        first = gpus[0] or {}
+        if isinstance(first, dict):
+            mem_info = first.get("MemoryInfo") or first.get("memoryInfo") or {}
+            size_mib = _parse_numeric(mem_info.get("SizeInMiB"))
+            if size_mib and size_mib > 0:
+                return _coerce_number(round(size_mib / 1024, 6))
+            size_gib = _parse_numeric(mem_info.get("SizeInGiB"))
+            if size_gib and size_gib > 0:
+                return _coerce_number(round(size_gib, 6))
+            gpu_count = gpu_count or _parse_numeric(first.get("Count")) or 0
+
+    total_mib = _parse_numeric(payload.get("TotalGpuMemoryInMiB") or payload.get("totalGpuMemoryInMiB"))
+    if total_mib and total_mib > 0:
+        divisor = _parse_numeric(gpu_count) or 1
+        if divisor <= 0:
+            divisor = 1
+        return _coerce_number(round((total_mib / divisor) / 1024, 6))
+    return None
+
+
+def normalize_gpu_memory_gb(raw, gpu_name: str = "", gpu_count=0, gpu_variant: str = ""):
+    """Normalize per-GPU memory to a numeric GB value when possible."""
+    numeric = _parse_numeric(raw)
+    if numeric is not None:
+        return _coerce_number(numeric)
+
+    text = str(raw or "").strip()
+    if not text:
+        text = ""
+    else:
+        parsed = _parse_gpu_info_memory_gb(text, gpu_count)
+        if parsed is not None:
+            return parsed
+        mem_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:Gi?B|GB)\b", text, re.I)
+        if mem_match:
+            return _coerce_number(float(mem_match.group(1)))
+
+    normalized_gpu = normalize_gpu_name(gpu_name)
+    normalized_variant = normalize_gpu_variant(gpu_variant)
+    if normalized_gpu == "H100" and normalized_variant == "NVL":
+        return 94
+    if normalized_gpu == "A100":
+        compact = (text or str(gpu_name or "")).lower().replace(" ", "")
+        if "80" in compact:
+            return 80
+        if "40" in compact:
+            return 40
+    inferred = GPU_MEMORY_GB_MAP.get(normalized_gpu)
+    if inferred is not None:
+        return inferred
+    return ""
+
+
+def _parse_raw_extra(raw_extra: str):
+    if not raw_extra:
+        return {}
+    try:
+        parsed = json.loads(raw_extra)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def normalize_region(region: str, provider: str = "", country: str = "", raw_extra: str = "", source: str = "") -> str:
+    """Backfill missing raw region fields from provider-specific hints when possible."""
+    raw_region = str(region or "").strip()
+    if raw_region:
+        return raw_region
+
+    raw_country = str(country or "").strip().upper()
+    if raw_country:
+        return raw_country
+
+    provider_name = normalize_provider(provider or "")
+    source_name = normalize_provider(source or "")
+    extra = _parse_raw_extra(raw_extra)
+    if provider_name == "vultr":
+        locations = extra.get("locations") or []
+        if isinstance(locations, list):
+            for location in locations:
+                loc = str(location or "").strip()
+                if loc:
+                    return loc
+        return "global"
+
+    if provider_name in GLOBAL_REGION_PROVIDERS or source_name in GLOBAL_REGION_PROVIDERS:
+        return "global"
+    return ""
 
 
 # Region → display bucket mapping helpers

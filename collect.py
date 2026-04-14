@@ -20,7 +20,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
-from schema import COLUMNS, infer_geo_group, normalize_gpu_name, normalize_provider
+from schema import (
+    COLUMNS,
+    infer_geo_group,
+    normalize_gpu_memory_gb,
+    normalize_gpu_name,
+    normalize_provider,
+    normalize_region,
+)
 
 
 def _load_dotenv():
@@ -166,6 +173,13 @@ _BOOLEANISH = {"true", "false", "1", "0", ""}
 _AZURE_GPU_SPEC_OVERRIDES = {
     "Standard_NC40ads_H100_v5": {"gpu_name": "H100", "gpu_memory_gb": 94, "gpu_count": 1, "gpu_variant": "NVL"},
     "Standard_NC80adis_H100_v5": {"gpu_name": "H100", "gpu_memory_gb": 94, "gpu_count": 2, "gpu_variant": "NVL"},
+}
+_AWS_FRONTIER_GPU_MIN_PER_GPU_HOUR = {
+    "A100": 0.30,
+    "H100": 0.75,
+    "H200": 1.00,
+    "B200": 2.00,
+    "GB200": 2.00,
 }
 
 
@@ -340,9 +354,30 @@ def _normalize_existing_row(row: dict) -> bool:
     if gpu_name != row.get("gpu_name", ""):
         row["gpu_name"] = gpu_name
         changed = True
+    gpu_memory_gb = normalize_gpu_memory_gb(
+        row.get("gpu_memory_gb", ""),
+        row.get("gpu_name", ""),
+        row.get("gpu_count", ""),
+        row.get("gpu_variant", ""),
+    )
+    if str(gpu_memory_gb) != str(row.get("gpu_memory_gb", "")):
+        row["gpu_memory_gb"] = gpu_memory_gb
+        changed = True
+    region = normalize_region(
+        row.get("region", ""),
+        row.get("provider", ""),
+        row.get("country", ""),
+        row.get("raw_extra", ""),
+        row.get("source", ""),
+    )
+    if region != row.get("region", ""):
+        row["region"] = region
+        changed = True
     geo_group = infer_geo_group(row.get("region", ""), row.get("country", ""))
     if geo_group != row.get("geo_group", ""):
         row["geo_group"] = geo_group
+        changed = True
+    if _repair_aws_existing_row(row):
         changed = True
     if _repair_azure_existing_row(row):
         changed = True
@@ -358,6 +393,80 @@ def _parse_float(raw) -> float:
 
 def _format_float(value: float) -> str:
     return f"{round(value, 6):.6f}".rstrip("0").rstrip(".") or "0"
+
+
+def _parse_raw_extra_dict(raw_extra: str) -> dict:
+    try:
+        parsed = json.loads(raw_extra or "")
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _dump_raw_extra_dict(raw_extra: dict, fallback: str = "") -> str:
+    if raw_extra:
+        return json.dumps(raw_extra, separators=(",", ":"), default=str)
+    return fallback
+
+
+def _repair_aws_existing_row(row: dict) -> bool:
+    if row.get("source") != "aws" and row.get("provider") != "aws":
+        return False
+
+    changed = False
+    raw_extra = _parse_raw_extra_dict(row.get("raw_extra", ""))
+    pricing_type = str(row.get("pricing_type", "")).lower()
+    capacity_status = str(raw_extra.get("capacity_status", "")).strip()
+    billing_model = str(raw_extra.get("billing_model", "")).strip()
+    purchase_option = str(raw_extra.get("purchase_option", "")).strip()
+    price_per_gpu_hour = _parse_float(row.get("price_per_gpu_hour"))
+    gpu_name = row.get("gpu_name", "")
+    suspicious_floor = _AWS_FRONTIER_GPU_MIN_PER_GPU_HOUR.get(gpu_name)
+
+    should_mark_reserved = False
+    commitment_period = row.get("commitment_period", "")
+    purchase_marker = purchase_option
+    billing_marker = billing_model
+
+    if pricing_type == "on_demand":
+        if billing_model == "capacity_block" or purchase_option == "capacity_block":
+            should_mark_reserved = True
+            commitment_period = commitment_period or "capacity_block"
+            purchase_marker = purchase_marker or "capacity_block"
+            billing_marker = billing_marker or "capacity_block"
+        elif billing_model == "capacity_reservation" or purchase_option == "capacity_reservation":
+            should_mark_reserved = True
+            commitment_period = commitment_period or "capacity_reservation"
+            purchase_marker = purchase_marker or "capacity_reservation"
+            billing_marker = billing_marker or "capacity_reservation"
+        elif capacity_status in {"UnusedCapacityReservation", "AllocatedCapacityReservation"}:
+            should_mark_reserved = True
+            commitment_period = commitment_period or "capacity_reservation"
+            purchase_marker = purchase_marker or "capacity_reservation"
+            billing_marker = billing_marker or "capacity_reservation"
+        elif suspicious_floor and 0 < price_per_gpu_hour < suspicious_floor:
+            should_mark_reserved = True
+            commitment_period = commitment_period or "capacity_block"
+            purchase_marker = purchase_marker or "capacity_block"
+            billing_marker = billing_marker or "capacity_block"
+
+    if should_mark_reserved:
+        if row.get("pricing_type") != "reserved":
+            row["pricing_type"] = "reserved"
+            changed = True
+        if row.get("commitment_period", "") != commitment_period:
+            row["commitment_period"] = commitment_period
+            changed = True
+        if raw_extra.get("purchase_option", "") != purchase_marker:
+            raw_extra["purchase_option"] = purchase_marker
+            changed = True
+        if raw_extra.get("billing_model", "") != billing_marker:
+            raw_extra["billing_model"] = billing_marker
+            changed = True
+
+    if changed:
+        row["raw_extra"] = _dump_raw_extra_dict(raw_extra, row.get("raw_extra", ""))
+    return changed
 
 
 def _repair_azure_existing_row(row: dict) -> bool:
@@ -401,9 +510,19 @@ def _repair_azure_existing_row(row: dict) -> bool:
 
 
 def _should_keep_existing_row(row: dict) -> bool:
+    if _is_implausible_akash_outlier(row):
+        return False
     if str(row.get("pricing_type", "")).lower() == "inference":
         return True
     return bool(str(row.get("gpu_name", "")).strip())
+
+
+def _is_implausible_akash_outlier(row: dict) -> bool:
+    if row.get("source") != "akash" and row.get("provider") != "akash":
+        return False
+    if row.get("gpu_name") != "GTX 1070 Ti":
+        return False
+    return _parse_float(row.get("price_per_gpu_hour")) > 20
 
 
 def repair_schema_drift_csv(path: str) -> tuple[int, int, int]:

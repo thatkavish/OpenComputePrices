@@ -21,6 +21,12 @@ API_URL = "https://console-api.akash.network/v1/gpu-prices"
 UA = "OpenComputePrices/1.0"
 
 
+def _is_implausible_akash_price(gpu_name: str, price: float) -> bool:
+    if gpu_name == "GTX 1070 Ti" and price > 20:
+        return True
+    return False
+
+
 class AkashCollector(BaseCollector):
     name = "akash"
     requires_api_key = False
@@ -77,14 +83,19 @@ class AkashCollector(BaseCollector):
                     continue
                 if price <= 0:
                     continue
+                normalized_gpu = normalize_gpu_name(gpu_model)
+                if _is_implausible_akash_price(normalized_gpu, price):
+                    logger.warning(f"[akash] Dropping implausible {normalized_gpu} {price_key} price: {price}")
+                    continue
 
                 rows.append(self.make_row(
                     provider="akash",
                     instance_type=f"{gpu_model}_{interface}_{price_key}" if interface else f"{gpu_model}_{price_key}",
-                    gpu_name=normalize_gpu_name(gpu_model),
+                    gpu_name=normalized_gpu,
                     gpu_variant=interface,
                     gpu_memory_gb=gpu_mem,
                     gpu_count=1,
+                    region="global",
                     pricing_type="on_demand",
                     price_per_hour=round(price, 6),
                     price_per_gpu_hour=round(price, 6),
