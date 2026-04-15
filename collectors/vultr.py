@@ -10,7 +10,7 @@ import json
 import logging
 import re
 import urllib.request
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 
 from collectors.base import BaseCollector
 from schema import normalize_gpu_name
@@ -21,6 +21,35 @@ PRICING_URL = "https://www.vultr.com/pricing/"
 # Vultr also has API docs - check for public pricing endpoint
 API_URL = "https://api.vultr.com/v2/plans"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+FULL_GPU_MEMORY_GB = {
+    "A100": 80,
+    "A16": 16,
+    "A40": 48,
+    "B200": 192,
+    "GB200": 192,
+    "H100": 80,
+    "H200": 141,
+    "L40S": 48,
+}
+
+
+def infer_effective_gpu_count(gpu_name: str, total_gpu_memory_gb) -> Union[float, int]:
+    normalized = normalize_gpu_name(gpu_name)
+    full_gpu_memory_gb = FULL_GPU_MEMORY_GB.get(normalized)
+    if not full_gpu_memory_gb:
+        return 1
+    try:
+        total_gpu_memory_gb = float(total_gpu_memory_gb or 0)
+    except (TypeError, ValueError):
+        return 1
+    if total_gpu_memory_gb <= 0:
+        return 1
+    effective_count = round(total_gpu_memory_gb / full_gpu_memory_gb, 6)
+    if effective_count <= 0:
+        return 1
+    if effective_count.is_integer():
+        return int(effective_count)
+    return effective_count
 
 
 class VultrCollector(BaseCollector):
@@ -89,10 +118,11 @@ class VultrCollector(BaseCollector):
 
         # Strip NVIDIA_ prefix for normalization
         gpu_clean = gpu_type.replace("NVIDIA_", "").replace("nvidia_", "")
+        gpu_name = normalize_gpu_name(gpu_clean)
 
-        # gpu_vram_gb in Vultr is fractional GPU VRAM allocation, not count
-        # Infer GPU count: vcg plans are fractional GPU slices (1 GPU shared)
-        gpu_count = 1
+        # gpu_vram_gb on Vultr is the total VRAM attached to the slice or VM.
+        # Normalize slices and multi-GPU plans to an effective full-GPU count.
+        gpu_count = infer_effective_gpu_count(gpu_name, gpu_vram_gb)
 
         ram_gb = round(ram / 1024, 1) if ram > 1024 else ram
 
@@ -113,10 +143,11 @@ class VultrCollector(BaseCollector):
             price = 0
 
         if price > 0:
+            price_per_gpu = round(price / gpu_count, 6) if gpu_count else round(price, 6)
             rows.append(self.make_row(
                 provider="vultr",
                 instance_type=plan_id,
-                gpu_name=normalize_gpu_name(gpu_clean),
+                gpu_name=gpu_name,
                 gpu_memory_gb=gpu_vram_gb,
                 gpu_count=gpu_count,
                 vcpus=vcpus,
@@ -124,7 +155,7 @@ class VultrCollector(BaseCollector):
                 storage_desc=f"{disk} GB" if disk else "",
                 pricing_type="on_demand",
                 price_per_hour=round(price, 6),
-                price_per_gpu_hour=round(price, 6),
+                price_per_gpu_hour=price_per_gpu,
                 available=len(locations) > 0,
                 raw_extra=json.dumps({
                     "monthly_cost": monthly_cost,
@@ -149,10 +180,11 @@ class VultrCollector(BaseCollector):
             preempt_price = 0
 
         if preempt_price > 0:
+            price_per_gpu = round(preempt_price / gpu_count, 6) if gpu_count else round(preempt_price, 6)
             rows.append(self.make_row(
                 provider="vultr",
                 instance_type=f"{plan_id}_preemptible",
-                gpu_name=normalize_gpu_name(gpu_clean),
+                gpu_name=gpu_name,
                 gpu_memory_gb=gpu_vram_gb,
                 gpu_count=gpu_count,
                 vcpus=vcpus,
@@ -160,7 +192,7 @@ class VultrCollector(BaseCollector):
                 storage_desc=f"{disk} GB" if disk else "",
                 pricing_type="spot",
                 price_per_hour=round(preempt_price, 6),
-                price_per_gpu_hour=round(preempt_price, 6),
+                price_per_gpu_hour=price_per_gpu,
                 available=len(locations) > 0 and plan.get("deploy_preemptible", False),
                 raw_extra=json.dumps({
                     "monthly_cost_preemptible": monthly_preempt,

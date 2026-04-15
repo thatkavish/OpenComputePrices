@@ -34,6 +34,8 @@ def _extract_gpu_from_description(desc: str) -> Dict[str, Any]:
     """Parse GPU name from GCP SKU description."""
     dl = desc.lower()
 
+    if "gb200" in dl:
+        return {"gpu": "GB200", "mem": 192, "variant": ""}
     if "h200" in dl:
         return {"gpu": "H200", "mem": 141, "variant": "SXM"}
     if "h100" in dl and "80gb" in dl:
@@ -62,8 +64,6 @@ def _extract_gpu_from_description(desc: str) -> Dict[str, Any]:
         return {"gpu": "L40", "mem": 48, "variant": ""}
     if "b200" in dl:
         return {"gpu": "B200", "mem": 192, "variant": ""}
-    if "gb200" in dl:
-        return {"gpu": "GB200", "mem": 192, "variant": ""}
     if "a10g" in dl:
         return {"gpu": "A10G", "mem": 24, "variant": ""}
 

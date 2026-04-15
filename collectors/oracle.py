@@ -7,6 +7,7 @@ https://apexapps.oracle.com/pls/apex/cetools/api/v1/products/
 
 import json
 import logging
+import re
 import urllib.request
 from typing import List, Dict, Any
 
@@ -23,6 +24,66 @@ GPU_KEYWORDS = [
     "mi300", "gh200", "b200", "gb200", "bare metal gpu",
     "nvidia", "accelerat",
 ]
+
+NODE_GPU_COUNT_PATTERNS = [
+    (re.compile(r"\bBM\.GPU\.A10\.\d+\b", re.I), 4),
+    (re.compile(r"\bVM\.GPU\.A10\.(\d+)\b", re.I), None),
+    (re.compile(r"\b(?:BM|VM)\.GPU\.A100(?:-v2)?\.(\d+)\b", re.I), None),
+    (re.compile(r"\b(?:BM|VM)\.GPU\.H100\.(\d+)\b", re.I), None),
+    (re.compile(r"\b(?:BM|VM)\.GPU\.H200\.(\d+)\b", re.I), None),
+    (re.compile(r"\b(?:BM|VM)\.GPU\.B200\.(\d+)\b", re.I), None),
+    (re.compile(r"\b(?:BM|VM)\.GPU\.GB200\.(\d+)\b", re.I), None),
+    (re.compile(r"\b(?:BM|VM)\.GPU\.GH200\.(\d+)\b", re.I), None),
+    (re.compile(r"\bBM\.GPU4\.(\d+)\b", re.I), None),
+]
+
+
+def _infer_gpu_name(display_name: str) -> str:
+    dn_lower = display_name.lower()
+    if "gb200" in dn_lower:
+        return "GB200"
+    if "gh200" in dn_lower:
+        return "GH200"
+    if "h200" in dn_lower:
+        return "H200"
+    if "h100" in dn_lower:
+        return "H100"
+    if "a100" in dn_lower:
+        return "A100"
+    if "a10" in dn_lower and "a100" not in dn_lower:
+        return "A10"
+    if "l40s" in dn_lower:
+        return "L40S"
+    if "l40" in dn_lower:
+        return "L40"
+    if "v100" in dn_lower:
+        return "V100"
+    if "mi300x" in dn_lower:
+        return "MI300X"
+    if "b200" in dn_lower:
+        return "B200"
+    if "gpu" in dn_lower:
+        return "GPU (unspecified)"
+    return ""
+
+
+def _infer_gpu_count(display_name: str, metric_name: str) -> int:
+    metric_lower = metric_name.lower()
+    if "gpu per hour" in metric_lower:
+        return 1
+
+    for pattern, fixed_count in NODE_GPU_COUNT_PATTERNS:
+        match = pattern.search(display_name)
+        if not match:
+            continue
+        if fixed_count is not None:
+            return fixed_count
+        try:
+            return int(match.group(1))
+        except (TypeError, ValueError, IndexError):
+            return 0
+
+    return 0
 
 
 class OracleCollector(BaseCollector):
@@ -87,36 +148,12 @@ class OracleCollector(BaseCollector):
         if usd_price is None or usd_price <= 0:
             return None
 
-        # Infer GPU name from display name
-        dn_lower = display_name.lower()
-        gpu_name = ""
-        if "h200" in dn_lower:
-            gpu_name = "H200"
-        elif "h100" in dn_lower:
-            gpu_name = "H100"
-        elif "a100" in dn_lower:
-            gpu_name = "A100"
-        elif "a10" in dn_lower and "a100" not in dn_lower:
-            gpu_name = "A10"
-        elif "l40s" in dn_lower:
-            gpu_name = "L40S"
-        elif "l40" in dn_lower:
-            gpu_name = "L40"
-        elif "v100" in dn_lower:
-            gpu_name = "V100"
-        elif "mi300x" in dn_lower:
-            gpu_name = "MI300X"
-        elif "gh200" in dn_lower:
-            gpu_name = "GH200"
-        elif "b200" in dn_lower:
-            gpu_name = "B200"
-        elif "gb200" in dn_lower:
-            gpu_name = "GB200"
-        elif "gpu" in dn_lower:
-            gpu_name = "GPU (unspecified)"
-
+        gpu_name = _infer_gpu_name(display_name)
         if not gpu_name:
             return None
+
+        gpu_count = _infer_gpu_count(display_name, metric_name)
+        price_per_gpu = usd_price / gpu_count if gpu_count > 0 else usd_price
 
         # Determine price_unit from metric
         price_unit = "hour"
@@ -130,10 +167,10 @@ class OracleCollector(BaseCollector):
             provider="oracle",
             instance_type=part_number,
             gpu_name=normalize_gpu_name(gpu_name),
-            gpu_count=0,  # OCI API doesn't specify per-product
+            gpu_count=gpu_count,
             pricing_type="on_demand",
             price_per_hour=usd_price,
-            price_per_gpu_hour=usd_price,
+            price_per_gpu_hour=round(price_per_gpu, 6),
             price_unit=price_unit,
             available=True,
             raw_extra=json.dumps({

@@ -14,6 +14,7 @@ import io
 import json
 import logging
 import os
+import re
 import sys
 import tempfile
 import time
@@ -72,7 +73,7 @@ from collectors.crusoe import CrusoeCollector
 from collectors.novita import NovitaCollector
 from collectors.akash import AkashCollector
 from collectors.cudo import CudoCollector
-from collectors.vultr import VultrCollector
+from collectors.vultr import VultrCollector, infer_effective_gpu_count
 from collectors.paperspace import PaperspaceCollector
 from collectors.primeintellect import PrimeIntellectCollector
 from collectors.datacrunch import DataCrunchCollector
@@ -173,6 +174,18 @@ _BOOLEANISH = {"true", "false", "1", "0", ""}
 _AZURE_GPU_SPEC_OVERRIDES = {
     "Standard_NC40ads_H100_v5": {"gpu_name": "H100", "gpu_memory_gb": 94, "gpu_count": 1, "gpu_variant": "NVL"},
     "Standard_NC80adis_H100_v5": {"gpu_name": "H100", "gpu_memory_gb": 94, "gpu_count": 2, "gpu_variant": "NVL"},
+}
+_COREWEAVE_GPU_COUNT_BY_INSTANCE = {
+    "A100": 8,
+    "GB200 NVL72": 4,
+    "L40": 8,
+    "L40S": 8,
+}
+_COREWEAVE_GPU_MEMORY_BY_INSTANCE = {
+    "A100": 80,
+    "GB200 NVL72": 186,
+    "L40": 48,
+    "L40S": 48,
 }
 _AWS_FRONTIER_GPU_MIN_PER_GPU_HOUR = {
     "A100": 0.30,
@@ -383,6 +396,10 @@ def _normalize_existing_row(row: dict) -> bool:
         changed = True
     if _repair_clore_existing_row(row):
         changed = True
+    if _repair_coreweave_existing_row(row):
+        changed = True
+    if _repair_vultr_existing_row(row):
+        changed = True
     return changed
 
 
@@ -558,12 +575,64 @@ def _repair_clore_existing_row(row: dict) -> bool:
     return changed
 
 
+def _repair_coreweave_existing_row(row: dict) -> bool:
+    if row.get("source") != "coreweave" and row.get("provider") != "coreweave":
+        return False
+
+    changed = False
+    instance_type = re.sub(r"\s+", " ", str(row.get("instance_type", "")).strip())
+    gpu_count = _COREWEAVE_GPU_COUNT_BY_INSTANCE.get(instance_type)
+    if not gpu_count:
+        return False
+
+    if str(row.get("gpu_count", "")) != str(gpu_count):
+        row["gpu_count"] = gpu_count
+        changed = True
+
+    gpu_memory_gb = _COREWEAVE_GPU_MEMORY_BY_INSTANCE.get(instance_type)
+    if gpu_memory_gb is not None and str(row.get("gpu_memory_gb", "")) != str(gpu_memory_gb):
+        row["gpu_memory_gb"] = gpu_memory_gb
+        changed = True
+
+    price_per_hour = _parse_float(row.get("price_per_hour"))
+    if price_per_hour > 0:
+        expected = _format_float(price_per_hour / gpu_count)
+        if row.get("price_per_gpu_hour") != expected:
+            row["price_per_gpu_hour"] = expected
+            changed = True
+
+    return changed
+
+
+def _repair_vultr_existing_row(row: dict) -> bool:
+    if row.get("source") != "vultr" and row.get("provider") != "vultr":
+        return False
+
+    gpu_count = infer_effective_gpu_count(row.get("gpu_name", ""), row.get("gpu_memory_gb", ""))
+    changed = False
+    if str(row.get("gpu_count", "")) != str(gpu_count):
+        row["gpu_count"] = gpu_count
+        changed = True
+
+    price_per_hour = _parse_float(row.get("price_per_hour"))
+    if price_per_hour > 0 and gpu_count:
+        expected = _format_float(price_per_hour / gpu_count)
+        if row.get("price_per_gpu_hour") != expected:
+            row["price_per_gpu_hour"] = expected
+            changed = True
+
+    return changed
+
+
 def _should_keep_existing_row(row: dict) -> bool:
     if _is_implausible_akash_outlier(row):
         return False
     if str(row.get("pricing_type", "")).lower() == "inference":
         return True
-    return bool(str(row.get("gpu_name", "")).strip())
+    gpu_name = str(row.get("gpu_name", "")).strip()
+    if not gpu_name:
+        return False
+    return re.fullmatch(r"\d+(?:\.\d+)?", gpu_name) is None
 
 
 def _is_implausible_akash_outlier(row: dict) -> bool:

@@ -1,9 +1,19 @@
 import unittest
 
-from collectors.azure import AzureCollector
+from collectors.azure import AzureCollector, _infer_gpu_from_sku
 
 
 class AzureCollectorTests(unittest.TestCase):
+    def test_unmapped_nd96_h100_variant_still_uses_eight_gpus(self):
+        gpu = _infer_gpu_from_sku(
+            "Standard_ND96isrf_H100_v5",
+            "Virtual Machines ND H100 v5 Series",
+        )
+
+        self.assertEqual(gpu["gpu"], "H100")
+        self.assertEqual(gpu["count"], 8)
+        self.assertEqual(gpu["variant"], "SXM5")
+
     def test_ncads_h100_v5_uses_correct_gpu_count(self):
         row = AzureCollector()._parse_item({
             "armSkuName": "Standard_NC40ads_H100_v5",

@@ -1,8 +1,10 @@
 import unittest
 
 from collectors.browser_providers import (
+    CoreWeaveBrowserCollector,
     GcoreBrowserCollector,
     HyperstackBrowserCollector,
+    LightningAIBrowserCollector,
     QubridBrowserCollector,
     SaladBrowserCollector,
 )
@@ -10,6 +12,63 @@ from collectors.massedcompute import MassedComputeCollector
 
 
 class BrowserCollectorParserTests(unittest.TestCase):
+    def test_coreweave_table_rows_use_explicit_gpu_count(self):
+        collector = CoreWeaveBrowserCollector()
+        html = """
+        <div role="listitem" class="table-row-v2 w-dyn-item kubernetes-gpu-pricing">
+          <div class="w-embed">
+            <div class="table-grid">
+              <div class="table-v2-cell table-v2-cell--name">
+                <h3 data-product="nvidia-a100" class="table-model-name">NVIDIA A100</h3>
+              </div>
+              <div class="table-v2-cell"><div>8</div></div>
+              <div class="table-v2-cell"><div>80</div></div>
+              <div class="table-v2-cell"><div>128</div></div>
+              <div class="table-v2-cell"><div>2,048</div></div>
+              <div class="table-v2-cell"><div>7.68</div></div>
+              <div class="table-v2-cell"><div>$21.60</div></div>
+            </div>
+          </div>
+        </div>
+        """
+
+        rows = collector.parse_page(html)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["gpu_name"], "A100")
+        self.assertEqual(rows[0]["gpu_count"], 8)
+        self.assertEqual(rows[0]["gpu_memory_gb"], 80)
+        self.assertEqual(rows[0]["price_per_hour"], 21.6)
+        self.assertEqual(rows[0]["price_per_gpu_hour"], 2.7)
+
+    def test_coreweave_gpu_count_parses_footnote_suffix(self):
+        collector = CoreWeaveBrowserCollector()
+        html = """
+        <div role="listitem" class="table-row-v2 w-dyn-item kubernetes-gpu-pricing">
+          <div class="w-embed">
+            <div class="table-grid">
+              <div class="table-v2-cell table-v2-cell--name">
+                <h3 data-product="nvidia-gb200-nvl72" class="table-model-name">NVIDIA GB200 NVL72</h3>
+              </div>
+              <div class="table-v2-cell"><div>4^1</div></div>
+              <div class="table-v2-cell"><div>186</div></div>
+              <div class="table-v2-cell"><div>144</div></div>
+              <div class="table-v2-cell"><div>960</div></div>
+              <div class="table-v2-cell"><div>30.72</div></div>
+              <div class="table-v2-cell"><div>$42.00</div></div>
+            </div>
+          </div>
+        </div>
+        """
+
+        rows = collector.parse_page(html)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["gpu_name"], "GB200")
+        self.assertEqual(rows[0]["gpu_count"], 4)
+        self.assertEqual(rows[0]["gpu_memory_gb"], 186)
+        self.assertEqual(rows[0]["price_per_gpu_hour"], 10.5)
+
     def test_hyperstack_text_pricing_extracts_shifted_page_layout(self):
         collector = HyperstackBrowserCollector()
         collector._last_render_text = "\n".join([
@@ -73,6 +132,22 @@ class BrowserCollectorParserTests(unittest.TestCase):
         self.assertEqual([row["gpu_name"] for row in rows], ["RTX 5090", "GTX 1050 Ti"])
         self.assertEqual(rows[1]["gpu_memory_gb"], 4)
         self.assertEqual(rows[1]["price_per_hour"], 0.01)
+
+    def test_lightning_table_falls_back_from_machine_column_to_accelerator_name(self):
+        collector = LightningAIBrowserCollector()
+        html = """
+        <table>
+          <tr><th>Machine</th><th>Accelerator</th><th>Price</th></tr>
+          <tr><td>1</td><td>H100</td><td>$2.89</td></tr>
+        </table>
+        """
+
+        rows = collector.parse_page(html)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["instance_type"], "H100")
+        self.assertEqual(rows[0]["gpu_name"], "H100")
+        self.assertEqual(rows[0]["price_per_hour"], 2.89)
 
     def test_qubrid_text_vm_table_extracts_multi_gpu_per_gpu_price(self):
         collector = QubridBrowserCollector()

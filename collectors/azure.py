@@ -63,12 +63,45 @@ AZURE_GPU_MAP = {
 }
 
 
+def _infer_gpu_from_sku_name(sku_name: str) -> Dict[str, Any]:
+    sku_lower = sku_name.lower()
+
+    if "h100" in sku_lower:
+        if "nc40ads" in sku_lower:
+            return {"gpu": "H100", "mem": 94, "count": 1, "variant": "NVL"}
+        if "nc80adis" in sku_lower:
+            return {"gpu": "H100", "mem": 94, "count": 2, "variant": "NVL"}
+        if "nd96" in sku_lower:
+            return {"gpu": "H100", "mem": 80, "count": 8, "variant": "SXM5"}
+
+    if "h200" in sku_lower and "nd96" in sku_lower:
+        return {"gpu": "H200", "mem": 141, "count": 8, "variant": "SXM"}
+
+    if "a100" in sku_lower:
+        if "nc24ads" in sku_lower:
+            return {"gpu": "A100", "mem": 80, "count": 1, "variant": "PCIe"}
+        if "nc48ads" in sku_lower:
+            return {"gpu": "A100", "mem": 80, "count": 2, "variant": "PCIe"}
+        if "nc96ads" in sku_lower:
+            return {"gpu": "A100", "mem": 80, "count": 4, "variant": "PCIe"}
+        if "nd96ams" in sku_lower:
+            return {"gpu": "A100", "mem": 80, "count": 8, "variant": "SXM4"}
+        if "nd96as" in sku_lower:
+            return {"gpu": "A100", "mem": 40, "count": 8, "variant": "SXM4"}
+
+    return {"gpu": "", "mem": 0, "count": 0, "variant": ""}
+
+
 def _infer_gpu_from_sku(sku_name: str, product_name: str) -> Dict[str, Any]:
     """Try to infer GPU info from the SKU or product name."""
     # Direct lookup
     base = sku_name.split(" ")[0] if " " in sku_name else sku_name
     if base in AZURE_GPU_MAP:
         return AZURE_GPU_MAP[base]
+
+    inferred = _infer_gpu_from_sku_name(base)
+    if inferred.get("gpu"):
+        return inferred
 
     # Pattern-based inference from product name
     pn = product_name.lower()

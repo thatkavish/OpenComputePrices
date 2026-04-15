@@ -8,7 +8,7 @@ client-side rendered and has no discoverable free API.
 import json
 import logging
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from collectors.browser_scraper import BrowserScraper
 from schema import normalize_gpu_name
@@ -29,6 +29,37 @@ def _parse_memory_gb(text: str) -> int:
     return int(match.group(1)) if match else 0
 
 
+def _parse_gpu_count(text: str):
+    match = re.search(r"(\d+(?:\.\d+)?)", str(text or ""))
+    if not match:
+        return 0
+    value = float(match.group(1))
+    return int(value) if value.is_integer() else round(value, 6)
+
+
+def _normalized_gpu_candidate(raw: str) -> str:
+    candidate = normalize_gpu_name(raw or "")
+    if not candidate:
+        return ""
+    if re.fullmatch(r"\d+(?:\.\d+)?", candidate):
+        return ""
+    return candidate
+
+
+def _extract_row_gpu(row: List[str], preferred_index: Optional[int] = None) -> tuple[str, str]:
+    indices = []
+    if preferred_index is not None and 0 <= preferred_index < len(row):
+        indices.append(preferred_index)
+    indices.extend(i for i in range(len(row)) if i not in indices)
+
+    for idx in indices:
+        raw = row[idx].strip()
+        normalized = _normalized_gpu_candidate(raw)
+        if normalized:
+            return raw, normalized
+    return "", ""
+
+
 # ---------------------------------------------------------------------------
 # CoreWeave — Platinum tier
 # ---------------------------------------------------------------------------
@@ -44,6 +75,7 @@ class CoreWeaveBrowserCollector(BrowserScraper):
         "GB200": {"mem": 192, "variant": ""},
         "A100": {"mem": 80, "variant": "SXM4"},
         "A40": {"mem": 48, "variant": ""},
+        "L40": {"mem": 48, "variant": ""},
         "L40S": {"mem": 48, "variant": ""},
         "RTX A6000": {"mem": 48, "variant": ""},
         "RTX A5000": {"mem": 24, "variant": ""},
@@ -51,6 +83,10 @@ class CoreWeaveBrowserCollector(BrowserScraper):
     }
 
     def parse_page(self, html: str) -> List[Dict[str, Any]]:
+        rows = self._parse_pricing_tables(html)
+        if rows:
+            return rows
+
         rows = []
         seen = set()
 
@@ -113,13 +149,84 @@ class CoreWeaveBrowserCollector(BrowserScraper):
             else:
                 specs_variant = specs.get("variant", "")
 
+            gpu_count = 1
             rows.append(self.make_row(
                 provider="coreweave", instance_type=gpu_raw,
                 gpu_name=normalize_gpu_name(gn),
                 gpu_variant=specs_variant,
                 gpu_memory_gb=specs.get("mem", 0),
-                gpu_count=1, pricing_type="on_demand",
-                price_per_hour=price, price_per_gpu_hour=price,
+                gpu_count=gpu_count, pricing_type="on_demand",
+                price_per_hour=price, price_per_gpu_hour=round(price / gpu_count, 6),
+                available=True,
+            ))
+
+        return rows
+
+    def _parse_pricing_tables(self, html: str) -> List[Dict[str, Any]]:
+        rows = []
+        seen = set()
+        for match in re.finditer(r'<h3[^>]*class="table-model-name">NVIDIA\s+([^<]+)</h3>', html, re.I):
+            gpu_raw = re.sub(r"\s+", " ", match.group(1)).strip()
+            window = html[match.end():match.end() + 1400]
+            cells = [
+                re.sub(r"\s+", " ", cell).strip()
+                for cell in re.findall(r'<div class="table-v2-cell(?: [^"]*)?">\s*<div>([^<]*)</div>', window)
+            ]
+            if len(cells) < 2:
+                continue
+
+            gpu_count = _parse_gpu_count(cells[0])
+            if not gpu_count:
+                continue
+
+            price = 0.0
+            for cell in cells:
+                if "$" not in cell:
+                    continue
+                try:
+                    price = float(cell.replace("$", "").replace(",", "").strip())
+                except ValueError:
+                    continue
+                break
+            if price <= 0:
+                continue
+
+            gpu_m = re.search(r'(GB200|B200|H200|H100|A100|A40|L40S?|RTX\s*A?\d+)', gpu_raw, re.I)
+            if not gpu_m:
+                continue
+            gn = gpu_m.group(1)
+            variant = ""
+            ctx = gpu_raw.lower()
+            if "sxm" in ctx:
+                sxm_match = re.search(r'sxm(\d)', ctx)
+                variant = "SXM" + (sxm_match.group(1) if sxm_match else "")
+            elif "pcie" in ctx:
+                variant = "PCIe"
+            elif "nvl" in ctx:
+                variant = "NVL"
+            elif "hgx" in ctx:
+                variant = "HGX"
+
+            key = (gn.upper(), price, gpu_count)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            specs = self.KNOWN_SPECS.get(gn.upper(), {})
+            memory_match = re.search(r"(\d+(?:\.\d+)?)", cells[1])
+            gpu_memory_gb = (
+                int(float(memory_match.group(1))) if memory_match else specs.get("mem", 0)
+            )
+            rows.append(self.make_row(
+                provider="coreweave",
+                instance_type=gpu_raw,
+                gpu_name=normalize_gpu_name(gn),
+                gpu_variant=variant or specs.get("variant", ""),
+                gpu_memory_gb=gpu_memory_gb,
+                gpu_count=gpu_count,
+                pricing_type="on_demand",
+                price_per_hour=price,
+                price_per_gpu_hour=round(price / gpu_count, 6),
                 available=True,
             ))
 
@@ -440,23 +547,28 @@ class LightningAIBrowserCollector(BrowserScraper):
                 for row in table[1:]:
                     if len(row) <= max(gpu_col, price_col):
                         continue
-                    gpu_raw = row[gpu_col]
+                    gpu_raw, gpu_name = _extract_row_gpu(row, gpu_col)
+                    if not gpu_name:
+                        continue
                     pm = re.search(r"\$?([\d.]+)", row[price_col])
                     if pm:
                         price = float(pm.group(1))
                         if price > 0:
                             rows.append(self.make_row(
                                 provider="lightningai", instance_type=gpu_raw,
-                                gpu_name=normalize_gpu_name(gpu_raw), gpu_count=1,
+                                gpu_name=gpu_name, gpu_count=1,
                                 pricing_type="on_demand",
                                 price_per_hour=price, price_per_gpu_hour=price,
                                 available=True,
                             ))
         if not rows:
             for pair in self.extract_gpu_price_pairs(html):
+                gpu_name = _normalized_gpu_candidate(pair["gpu"])
+                if not gpu_name:
+                    continue
                 rows.append(self.make_row(
                     provider="lightningai", instance_type=pair["gpu"],
-                    gpu_name=normalize_gpu_name(pair["gpu"]), gpu_count=1,
+                    gpu_name=gpu_name, gpu_count=1,
                     pricing_type="on_demand",
                     price_per_hour=pair["price"], price_per_gpu_hour=pair["price"],
                     available=True,

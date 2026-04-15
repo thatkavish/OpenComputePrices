@@ -17,8 +17,13 @@ from schema import infer_geo_group, normalize_gpu_memory_gb, normalize_gpu_name
 
 logger = logging.getLogger(__name__)
 
-# SkyPilot catalog raw CSV URLs on GitHub (v6 is latest as of 2025)
-CATALOG_BASE = "https://raw.githubusercontent.com/skypilot-org/skypilot-catalog/master/catalogs/v6"
+# SkyPilot catalog raw CSV URLs on GitHub.
+# Keep this pinned to the latest catalog generation we have validated.
+CATALOG_VERSION = "v8"
+CATALOG_BASE = (
+    "https://raw.githubusercontent.com/skypilot-org/skypilot-catalog/master/"
+    f"catalogs/{CATALOG_VERSION}"
+)
 
 # Cloud → CSV filename mapping
 CATALOGS = {

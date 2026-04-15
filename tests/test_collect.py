@@ -216,6 +216,38 @@ class CollectTests(unittest.TestCase):
         self.assertIn('"source_price_unit":"hour"', row["raw_extra"])
         self.assertNotIn("daily_usd", row["raw_extra"])
 
+    def test_normalize_existing_row_repairs_coreweave_node_prices(self):
+        row = self._row(
+            source="coreweave",
+            provider="coreweave",
+            instance_type="A100",
+            gpu_name="A100",
+            gpu_count="1",
+            gpu_memory_gb="80",
+            price_per_hour="21.6",
+            price_per_gpu_hour="21.6",
+        )
+
+        self.assertTrue(collect._normalize_existing_row(row))
+        self.assertEqual(row["gpu_count"], 8)
+        self.assertEqual(row["price_per_gpu_hour"], "2.7")
+
+    def test_normalize_existing_row_repairs_vultr_fractional_gpu_count(self):
+        row = self._row(
+            source="vultr",
+            provider="vultr",
+            instance_type="vcg-a100-6c-60g-40vram",
+            gpu_name="A100",
+            gpu_count="1",
+            gpu_memory_gb="40",
+            price_per_hour="1.199",
+            price_per_gpu_hour="1.199",
+        )
+
+        self.assertTrue(collect._normalize_existing_row(row))
+        self.assertEqual(row["gpu_count"], 0.5)
+        self.assertEqual(row["price_per_gpu_hour"], "2.398")
+
     def test_should_keep_existing_row_drops_implausible_akash_gtx1070ti_outlier(self):
         row = self._row(
             source="akash",
@@ -224,6 +256,18 @@ class CollectTests(unittest.TestCase):
             gpu_name="GTX 1070 Ti",
             price_per_hour="55.83",
             price_per_gpu_hour="55.83",
+        )
+
+        self.assertFalse(collect._should_keep_existing_row(row))
+
+    def test_should_keep_existing_row_drops_numeric_gpu_name(self):
+        row = self._row(
+            source="lightningai",
+            provider="lightningai",
+            instance_type="1",
+            gpu_name="1",
+            price_per_hour="2.89",
+            price_per_gpu_hour="2.89",
         )
 
         self.assertFalse(collect._should_keep_existing_row(row))
