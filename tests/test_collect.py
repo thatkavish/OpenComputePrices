@@ -83,6 +83,10 @@ class CollectTests(unittest.TestCase):
         )
         self.assertEqual(collect.resolve_collector_names(args), ["aws", "azure", "coreweave"])
 
+    def test_openrouter_is_not_an_active_collector(self):
+        self.assertNotIn("openrouter", collect.COLLECTORS)
+        self.assertNotIn("openrouter", collect.NO_AUTH_COLLECTORS)
+
     def test_main_exits_non_zero_when_all_collectors_fail(self):
         with mock.patch.dict(collect.COLLECTORS, {"boom": _BoomCollector}, clear=True), \
              mock.patch.object(collect, "NO_AUTH_COLLECTORS", []), \

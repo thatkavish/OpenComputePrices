@@ -74,6 +74,38 @@ class LatestOffersTests(unittest.TestCase):
         self.assertEqual(len(offers), 2)
         self.assertEqual(stats["shadow_rows_dropped"], 0)
 
+    def test_drops_generic_getdeploying_row_when_direct_source_exists(self):
+        rows = [
+            _row(
+                source="getdeploying",
+                provider="aws",
+                instance_type="1x H100 80GB (p5.4xlarge)",
+                region="global",
+                geo_group="Unknown",
+                vcpus="",
+                ram_gb="",
+                price_per_hour="6.88",
+                price_per_gpu_hour="6.88",
+            ),
+            _row(
+                source="aws",
+                provider="aws",
+                instance_type="p5.4xlarge",
+                region="us-east-1",
+                geo_group="US East",
+                vcpus="16",
+                ram_gb="256",
+                price_per_hour="6.88",
+                price_per_gpu_hour="6.88",
+            ),
+        ]
+
+        offers, stats = derive_latest_gpu_offers(rows)
+
+        self.assertEqual(len(offers), 1)
+        self.assertEqual(offers[0]["source"], "aws")
+        self.assertEqual(stats["aggregator_shadow_rows_dropped"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

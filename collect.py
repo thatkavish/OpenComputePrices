@@ -58,7 +58,6 @@ _load_dotenv()
 from collectors.aws import AWSCollector
 from collectors.azure import AzureCollector
 from collectors.oracle import OracleCollector
-from collectors.openrouter import OpenRouterCollector
 from collectors.shadeform import ShadeformCollector
 from collectors.runpod import RunPodCollector
 from collectors.vastai import VastAICollector
@@ -110,7 +109,6 @@ COLLECTORS = {
     "aws": AWSCollector,
     "azure": AzureCollector,
     "oracle": OracleCollector,
-    "openrouter": OpenRouterCollector,
     "tensordock": TensorDockCollector,
     "skypilot": SkyPilotCollector,
     # --- No auth required (web scrapers) ---
@@ -152,7 +150,7 @@ COLLECTORS = {
 }
 
 NO_AUTH_COLLECTORS = [
-    "aws", "azure", "oracle", "openrouter", "tensordock", "skypilot",
+    "aws", "azure", "oracle", "tensordock", "skypilot",
     "getdeploying", "jarvislabs", "thundercompute", "crusoe", "novita",
     "akash", "cudo", "vultr", "paperspace",
     "deepinfra", "linode", "latitude", "massedcompute", "e2e",

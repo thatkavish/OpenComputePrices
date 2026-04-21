@@ -32,6 +32,7 @@ MASTER_PATH = os.path.join(DATA_DIR, "_master.csv")
 LATEST_OFFERS_PATH = os.path.join(DATA_DIR, "_latest_gpu_offers.csv")
 
 LOCATION_FIELDS = ["region", "zone", "country", "geo_group", "gpu_interconnect"]
+AGGREGATOR_SOURCES = {"getdeploying"}
 
 # Group rows by the dimensions that should describe the same underlying offer
 # for presentation purposes. Location/interconnect are excluded so a more
@@ -150,6 +151,43 @@ def _merge_rows(preferred: Dict[str, str], other: Dict[str, str]) -> None:
             preferred[field] = other[field]
 
 
+def _identity_key(row: Dict[str, str]) -> Tuple[str, ...]:
+    return (
+        _canon(row.get("snapshot_date", "")),
+        _canon(row.get("provider", "")),
+        _canon(row.get("gpu_name", "")),
+        _canon(row.get("pricing_type", "")),
+    )
+
+
+def _has_any_location_metadata(row: Dict[str, str]) -> bool:
+    return any(not _is_generic(row.get(field, "")) for field in LOCATION_FIELDS)
+
+
+def _drop_generic_aggregator_shadows(rows: List[Dict[str, str]]) -> Tuple[List[Dict[str, str]], int]:
+    direct_rows_by_identity: Dict[Tuple[str, ...], List[Dict[str, str]]] = defaultdict(list)
+    for row in rows:
+        if _canon(row.get("source", "")) in AGGREGATOR_SOURCES:
+            continue
+        direct_rows_by_identity[_identity_key(row)].append(row)
+
+    kept: List[Dict[str, str]] = []
+    dropped = 0
+    for row in rows:
+        if _canon(row.get("source", "")) not in AGGREGATOR_SOURCES:
+            kept.append(row)
+            continue
+        if _has_any_location_metadata(row):
+            kept.append(row)
+            continue
+        if direct_rows_by_identity.get(_identity_key(row)):
+            dropped += 1
+            continue
+        kept.append(row)
+
+    return kept, dropped
+
+
 def derive_latest_gpu_offers(rows: Iterable[Dict[str, str]]) -> Tuple[List[Dict[str, str]], Dict[str, int]]:
     by_group: Dict[Tuple[str, ...], List[Dict[str, str]]] = defaultdict(list)
     for row in rows:
@@ -193,6 +231,8 @@ def derive_latest_gpu_offers(rows: Iterable[Dict[str, str]]) -> Tuple[List[Dict[
 
         output.extend(kept)
 
+    output, aggregator_shadow_dropped = _drop_generic_aggregator_shadows(output)
+
     output.sort(
         key=lambda row: (
             row.get("provider", ""),
@@ -209,6 +249,7 @@ def derive_latest_gpu_offers(rows: Iterable[Dict[str, str]]) -> Tuple[List[Dict[
         "output_rows": len(output),
         "exact_duplicates_dropped": exact_dropped,
         "shadow_rows_dropped": shadow_dropped,
+        "aggregator_shadow_rows_dropped": aggregator_shadow_dropped,
     }
     return output, stats
 

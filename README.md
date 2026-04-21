@@ -194,10 +194,10 @@ python collect.py --no-auth-only
 python collect.py --no-browser
 
 # Run specific collectors
-python collect.py aws azure openrouter
+python collect.py aws azure oracle
 
 # Run a comma-separated list safely (useful in automation)
-python collect.py --sources-csv "aws,azure,openrouter"
+python collect.py --sources-csv "aws,azure,oracle"
 
 # Run browser-based collectors (requires Playwright)
 pip install playwright && python -m playwright install chromium
@@ -287,7 +287,6 @@ OpenComputePrices/
 │   ├── aws.py                  # AWS Bulk Price List
 │   ├── azure.py                # Azure Retail Prices
 │   ├── oracle.py               # Oracle Cloud (OCI)
-│   ├── openrouter.py           # OpenRouter inference models
 │   ├── tensordock.py           # TensorDock v2 marketplace
 │   ├── skypilot.py             # SkyPilot Catalog (15 clouds)
 │   ├── akash.py                # Akash Network

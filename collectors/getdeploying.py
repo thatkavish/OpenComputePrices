@@ -11,6 +11,8 @@ import json
 import logging
 import re
 import urllib.request
+from html import unescape
+from html.parser import HTMLParser
 from typing import List, Dict, Any
 
 from collectors.base import BaseCollector
@@ -34,6 +36,54 @@ GPU_PAGES = [
 ]
 
 
+class _HTMLTextExtractor(HTMLParser):
+    """Extract visible text from HTML fragments without leaking tag attributes."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._parts: List[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag in ("script", "style"):
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("script", "style") and self._skip_depth:
+            self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip_depth and data:
+            self._parts.append(data)
+
+    def text(self) -> str:
+        return " ".join(self._parts)
+
+
+def _html_to_text(fragment: str) -> str:
+    parser = _HTMLTextExtractor()
+    parser.feed(fragment or "")
+    parser.close()
+    return re.sub(r"\s+", " ", unescape(parser.text())).strip()
+
+
+def _clean_gpu_detail(detail: str) -> str:
+    cleaned = _html_to_text(detail)
+    cleaned = re.sub(r"^((?:\d+)x\s+[A-Za-z0-9.+-]+)\s+\1\b", r"\1", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _clean_provider_name(provider_name: str) -> str:
+    return re.sub(r"\s+", " ", _html_to_text(provider_name)).strip()
+
+
+def _clean_billing_text(billing: str) -> str:
+    cleaned = _html_to_text(billing)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
 def _fetch(url: str) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=30) as resp:
@@ -49,8 +99,7 @@ def _parse_html_table(html: str) -> List[List[str]]:
     rows = []
     for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", table, re.S):
         cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", tr, re.S)
-        cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
-        cells = [re.sub(r"\s+", " ", c).strip() for c in cells]
+        cells = [_html_to_text(c) for c in cells]
         if any(cells):
             rows.append(cells)
     return rows
@@ -110,8 +159,7 @@ class GetDeployingCollector(BaseCollector):
             parsed = []
             for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", table, re.S):
                 cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", tr, re.S)
-                cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
-                cells = [re.sub(r"\s+", " ", c).strip() for c in cells]
+                cells = [_html_to_text(c) for c in cells]
                 if any(cells):
                     parsed.append(cells)
 
@@ -175,8 +223,7 @@ class GetDeployingCollector(BaseCollector):
             parsed_rows = []
             for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", table, re.S):
                 cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", tr, re.S)
-                cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
-                cells = [re.sub(r"\s+", " ", c).strip() for c in cells]
+                cells = [_html_to_text(c) for c in cells]
                 if any(cells):
                     parsed_rows.append(cells)
 
@@ -219,13 +266,13 @@ class GetDeployingCollector(BaseCollector):
                 if len(data_row) <= max(price_col, provider_col):
                     continue
 
-                provider_name = data_row[provider_col].strip()
+                provider_name = _clean_provider_name(data_row[provider_col])
                 price = _parse_price(data_row[price_col])
                 if price <= 0 or not provider_name:
                     continue
 
                 # Extract instance details from GPUs column
-                gpu_detail = data_row[gpu_col] if gpu_col is not None and gpu_col < len(data_row) else ""
+                gpu_detail = _clean_gpu_detail(data_row[gpu_col]) if gpu_col is not None and gpu_col < len(data_row) else ""
                 vram = 0
                 if vram_col is not None and vram_col < len(data_row):
                     vram = _extract_vram(data_row[vram_col])
@@ -247,7 +294,7 @@ class GetDeployingCollector(BaseCollector):
 
                 billing = ""
                 if billing_col is not None and billing_col < len(data_row):
-                    billing = data_row[billing_col]
+                    billing = _clean_billing_text(data_row[billing_col])
 
                 pricing_type = "on_demand"
                 if billing and "spot" in billing.lower():
