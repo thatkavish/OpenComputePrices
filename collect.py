@@ -394,6 +394,8 @@ def _normalize_existing_row(row: dict) -> bool:
         changed = True
     if _repair_clore_existing_row(row):
         changed = True
+    if _repair_akash_existing_row(row):
+        changed = True
     if _repair_coreweave_existing_row(row):
         changed = True
     if _repair_vultr_existing_row(row):
@@ -573,6 +575,35 @@ def _repair_clore_existing_row(row: dict) -> bool:
     return changed
 
 
+def _repair_akash_existing_row(row: dict) -> bool:
+    if row.get("source") != "akash" and row.get("provider") != "akash":
+        return False
+
+    raw_extra = _parse_raw_extra_dict(row.get("raw_extra", ""))
+    changed = False
+
+    price_tier = str(raw_extra.get("price_tier", "")).strip()
+    price_metric = str(raw_extra.get("price_metric", "")).strip()
+    instance_type = str(row.get("instance_type", "")).strip()
+
+    if not price_metric and price_tier:
+        raw_extra["price_metric"] = price_tier
+        price_metric = price_tier
+        changed = True
+
+    if price_tier:
+        raw_extra.pop("price_tier", None)
+        changed = True
+
+    if instance_type.endswith("_weightedAverage"):
+        row["instance_type"] = instance_type[: -len("_weightedAverage")]
+        changed = True
+
+    if changed:
+        row["raw_extra"] = _dump_raw_extra_dict(raw_extra, row.get("raw_extra", ""))
+    return changed
+
+
 def _repair_coreweave_existing_row(row: dict) -> bool:
     if row.get("source") != "coreweave" and row.get("provider") != "coreweave":
         return False
@@ -625,6 +656,8 @@ def _repair_vultr_existing_row(row: dict) -> bool:
 def _should_keep_existing_row(row: dict) -> bool:
     if _is_implausible_akash_outlier(row):
         return False
+    if _is_noncanonical_akash_price_tier(row):
+        return False
     if str(row.get("pricing_type", "")).lower() == "inference":
         return True
     gpu_name = str(row.get("gpu_name", "")).strip()
@@ -639,6 +672,22 @@ def _is_implausible_akash_outlier(row: dict) -> bool:
     if row.get("gpu_name") != "GTX 1070 Ti":
         return False
     return _parse_float(row.get("price_per_gpu_hour")) > 20
+
+
+def _is_noncanonical_akash_price_tier(row: dict) -> bool:
+    if row.get("source") != "akash" and row.get("provider") != "akash":
+        return False
+
+    raw_extra = _parse_raw_extra_dict(row.get("raw_extra", ""))
+    price_metric = str(raw_extra.get("price_metric", "") or raw_extra.get("price_tier", "")).strip()
+    if price_metric:
+        return price_metric not in {"weightedAverage", ""}
+
+    instance_type = str(row.get("instance_type", "")).strip()
+    match = re.search(r"_(min|max|avg|med|weightedAverage)$", instance_type)
+    if not match:
+        return False
+    return match.group(1) != "weightedAverage"
 
 
 def repair_schema_drift_csv(path: str) -> tuple[int, int, int]:

@@ -220,6 +220,22 @@ class CollectTests(unittest.TestCase):
         self.assertIn('"source_price_unit":"hour"', row["raw_extra"])
         self.assertNotIn("daily_usd", row["raw_extra"])
 
+    def test_normalize_existing_row_repairs_akash_weighted_average_tier(self):
+        row = self._row(
+            source="akash",
+            provider="akash",
+            instance_type="h100_SXM5_weightedAverage",
+            gpu_name="H100",
+            price_per_hour="1.48",
+            price_per_gpu_hour="1.48",
+            raw_extra='{"vendor":"nvidia","price_tier":"weightedAverage","total_gpus":63}',
+        )
+
+        self.assertTrue(collect._normalize_existing_row(row))
+        self.assertEqual(row["instance_type"], "h100_SXM5")
+        self.assertIn('"price_metric":"weightedAverage"', row["raw_extra"])
+        self.assertNotIn("price_tier", row["raw_extra"])
+
     def test_normalize_existing_row_repairs_coreweave_node_prices(self):
         row = self._row(
             source="coreweave",
@@ -260,6 +276,19 @@ class CollectTests(unittest.TestCase):
             gpu_name="GTX 1070 Ti",
             price_per_hour="55.83",
             price_per_gpu_hour="55.83",
+        )
+
+        self.assertFalse(collect._should_keep_existing_row(row))
+
+    def test_should_keep_existing_row_drops_noncanonical_akash_price_tier(self):
+        row = self._row(
+            source="akash",
+            provider="akash",
+            instance_type="h100_SXM5_min",
+            gpu_name="H100",
+            price_per_hour="1.17",
+            price_per_gpu_hour="1.17",
+            raw_extra='{"vendor":"nvidia","price_tier":"min"}',
         )
 
         self.assertFalse(collect._should_keep_existing_row(row))
