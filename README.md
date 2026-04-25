@@ -1,6 +1,6 @@
 # OpenComputePrices
 
-**Open-source historical GPU and inference cloud pricing dataset**, automatically updated daily via GitHub Actions.
+**Open-source historical GPU cloud pricing dataset**, automatically updated daily via GitHub Actions.
 
 Collects pricing data from **39 collectors across 65+ GPU cloud providers** — hyperscalers, neoclouds, marketplaces, aggregators, and inference platforms — storing every dimension that affects price at maximum granularity.
 
@@ -84,36 +84,12 @@ GPU compute pricing (per-hour, per-GPU-hour) from cloud providers, neoclouds, an
 | Pricing Types       | on_demand, spot, reserved                            |
 | Geographic Coverage | Global (US, Canada, Europe, APAC, LATAM, Middle East, Africa) |
 
-### `_inference.csv` — Model Inference Pricing
-
-LLM inference pricing (per-token) from inference providers and APIs.
-
-| Metric           | Value                                        |
-| ---------------- | -------------------------------------------- |
-| Providers        | 4+ (OpenRouter, DeepInfra, Novita, Together) |
-| Pricing Unit     | Per-token (input/output)                     |
-| Model Categories | Chat, embeddings, vision, code generation    |
-
-### `_latest_gpu_offers.csv` — Derived Latest Offers View
-
-Latest-snapshot GPU offers view for dashboards/tables. This is generated from `_master.csv` after finalization and only collapses exact duplicates plus generic rows shadowed by a more specific region/interconnect row with the same offer identity and pricing.
-
 ### Database Separation
 
 The databases are automatically separated during the unification step (`unify.py`):
 
 - Rows with `pricing_type=inference` → `_inference.csv`
 - All other pricing types → `_master.csv`
-
-### Optional Derived Latest View
-
-For dashboard/table use cases, you can also derive the same presentation-oriented latest snapshot view locally without modifying the canonical database:
-
-```bash
-python latest_offers.py --input data/_master.csv --output data/_latest_gpu_offers.csv
-```
-
-This keeps `_master.csv` untouched and emits a latest-only GPU offers CSV that collapses exact duplicates plus generic rows shadowed by a more specific region/interconnect row with the same offer identity and pricing.
 
 ## Data Sources
 
