@@ -45,6 +45,7 @@ jobs:
           mkdir -p data
           if gh release download "$DATA_TAG" -p 'data.tar.gz' -D /tmp/ 2>/dev/null; then
             python release_data.py extract /tmp/data.tar.gz data
+            rm -f data/_latest_gpu_offers.csv
             echo "Downloaded existing data from release"
             ls -lh data/*.csv 2>/dev/null | wc -l | xargs -I{} echo "  {} CSV files"
           else
@@ -185,9 +186,6 @@ jobs:
 
       - name: Finalize data
         run: python collect.py --finalize-only
-
-      - name: Build derived latest offers view
-        run: python latest_offers.py --input data/_master.csv --output data/_latest_gpu_offers.csv
 
       - name: Upload data to release
         env:

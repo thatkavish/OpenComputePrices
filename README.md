@@ -72,7 +72,7 @@ mkdir -p data && tar xzf data.tar.gz -C data/
 curl -L https://github.com/thatkavish/OpenComputePrices/releases/download/latest-data/data.tar.gz | tar xz -C data/
 ```
 
-The archive contains per-source CSVs (`aws.csv`, `azure.csv`, etc.), two unified databases, and one derived latest-snapshot view:
+The archive contains per-source CSVs (`aws.csv`, `azure.csv`, etc.) and two unified databases:
 
 ### `_master.csv` — GPU Cloud Pricing
 
@@ -197,7 +197,7 @@ python unify.py --stats
 python summary.py
 
 # Run local checks
-PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall collect.py collectors latest_offers.py release_data.py schema.py summary.py unify.py
+PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall collect.py collectors release_data.py schema.py summary.py unify.py
 python -m unittest discover -s tests -v
 ```
 
@@ -250,7 +250,6 @@ Data is stored in [GitHub Releases](../../releases/tag/latest-data) — the work
 ```
 OpenComputePrices/
 ├── collect.py                  # Main entry point — runs collectors, builds unified DBs
-├── latest_offers.py            # Optional derived latest-offers view for dashboards/tables
 ├── unify.py                    # Merges per-source CSVs into deduplicated master DBs
 ├── schema.py                   # Standardized 33-column schema & GPU name normalization
 ├── summary.py                  # Quick dataset inspection tool
