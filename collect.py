@@ -658,12 +658,31 @@ def _should_keep_existing_row(row: dict) -> bool:
         return False
     if _is_noncanonical_akash_price_tier(row):
         return False
+    if _is_malformed_coreweave_price_only_row(row):
+        return False
     if str(row.get("pricing_type", "")).lower() == "inference":
         return True
     gpu_name = str(row.get("gpu_name", "")).strip()
     if not gpu_name:
         return False
     return re.fullmatch(r"\d+(?:\.\d+)?", gpu_name) is None
+
+
+def _is_malformed_coreweave_price_only_row(row: dict) -> bool:
+    if row.get("source") != "coreweave" and row.get("provider") != "coreweave":
+        return False
+    if str(row.get("pricing_type", "")).lower() != "on_demand":
+        return False
+
+    gpu_count = _parse_float(row.get("gpu_count"))
+    price_per_hour = _parse_float(row.get("price_per_hour"))
+    price_per_gpu_hour = _parse_float(row.get("price_per_gpu_hour"))
+    if gpu_count <= 0 or price_per_hour <= 0:
+        return False
+    if abs(gpu_count - round(gpu_count)) <= 1e-6:
+        return False
+
+    return abs(gpu_count - price_per_hour) <= 1e-6 and abs(price_per_gpu_hour - 1.0) <= 1e-6
 
 
 def _is_implausible_akash_outlier(row: dict) -> bool:
@@ -779,32 +798,39 @@ def _first_snapshot_date(path: str) -> str:
     return ""
 
 
-def _prune_csv_by_cutoff(path: str, cutoff: str, collect_expired: bool = False) -> tuple[int, list[dict]]:
+def _prune_csv_by_cutoff(path: str, cutoff: str, collect_expired: bool = False) -> tuple[int, list[dict], set[str]]:
     if not os.path.isfile(path) or os.path.getsize(path) == 0:
-        return 0, []
+        return 0, [], set()
 
-    if _first_snapshot_date(path) >= cutoff:
-        return 0, []
+    if _first_snapshot_date(path) >= cutoff and os.path.basename(path) != "coreweave.csv":
+        return 0, [], set()
 
     fd, tmp_path = tempfile.mkstemp(prefix="collect_prune_", suffix=".csv", dir=os.path.dirname(path) or None)
     os.close(fd)
     removed = 0
     expired_rows = []
+    removed_dates = set()
     try:
         with open(path, newline="", encoding="utf-8") as src, open(tmp_path, "w", newline="", encoding="utf-8") as dst:
             reader = csv.DictReader(src)
             writer = csv.DictWriter(dst, fieldnames=COLUMNS, extrasaction="ignore")
             writer.writeheader()
             for row in reader:
-                if row.get("snapshot_date", "") < cutoff:
+                snapshot_date = row.get("snapshot_date", "")
+                if snapshot_date < cutoff:
                     removed += 1
                     if collect_expired:
                         expired_rows.append(row)
                     continue
+                if not _should_keep_existing_row(row):
+                    removed += 1
+                    if snapshot_date:
+                        removed_dates.add(snapshot_date)
+                    continue
                 writer.writerow(row)
 
         os.replace(tmp_path, path)
-        return removed, expired_rows
+        return removed, expired_rows, removed_dates
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -894,10 +920,11 @@ def _incremental_finalize_existing_data(data_dir: str, no_unify: bool = False) -
             logger.info(f"[incremental] {fname}: deduped {len(new_rows) - len(unique_new_rows)} newly appended rows")
             _replace_appended_rows(path, baseline_size, unique_new_rows)
 
-        removed, expired = _prune_csv_by_cutoff(path, cutoff, collect_expired=True)
+        removed, expired, removed_dates = _prune_csv_by_cutoff(path, cutoff, collect_expired=True)
         if removed:
-            logger.info(f"[incremental] {fname}: pruned {removed} expired source rows")
+            logger.info(f"[incremental] {fname}: pruned {removed} source rows")
             expired_rows.extend(expired)
+            affected_dates.update(removed_dates)
         incremental_rows.extend(unique_new_rows)
         affected_dates.update(row.get("snapshot_date", "") for row in unique_new_rows if row.get("snapshot_date"))
 

@@ -69,6 +69,40 @@ class BrowserCollectorParserTests(unittest.TestCase):
         self.assertEqual(rows[0]["gpu_memory_gb"], 186)
         self.assertEqual(rows[0]["price_per_gpu_hour"], 10.5)
 
+    def test_coreweave_skips_mobile_price_only_duplicate_cells(self):
+        collector = CoreWeaveBrowserCollector()
+        html = """
+        <div role="listitem" class="table-row-v2 w-dyn-item gpu-pricing-and-kubernetes-gpu-pricing">
+          <div class="w-embed">
+            <div class="table-grid">
+              <div class="table-v2-cell table-v2-cell--name">
+                <h3 data-product="hgx-h100" class="table-model-name">NVIDIA HGX H100</h3>
+              </div>
+              <div class="table-v2-cell"><div>8</div></div>
+              <div class="table-v2-cell"><div>80</div></div>
+              <div class="table-v2-cell"><div>128</div></div>
+              <div class="table-v2-cell"><div>2,048</div></div>
+              <div class="table-v2-cell"><div>61.44</div></div>
+              <div class="table-v2-cell"><div>$49.24</div></div>
+              <div class="table-cell-column table-cell-column-left">
+                <h3 data-product="hgx-h100" class="table-model-name">NVIDIA HGX H100</h3>
+              </div>
+              <div class="table-v2-cell"><div>$19.71</div></div>
+              <div class="table-v2-cell"><div>$6.16</div></div>
+            </div>
+          </div>
+        </div>
+        """
+
+        rows = collector.parse_page(html)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["gpu_name"], "H100")
+        self.assertEqual(rows[0]["gpu_count"], 8)
+        self.assertEqual(rows[0]["gpu_memory_gb"], 80)
+        self.assertEqual(rows[0]["price_per_hour"], 49.24)
+        self.assertEqual(rows[0]["price_per_gpu_hour"], 6.155)
+
     def test_hyperstack_text_pricing_extracts_shifted_page_layout(self):
         collector = HyperstackBrowserCollector()
         collector._last_render_text = "\n".join([

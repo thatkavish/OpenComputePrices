@@ -8,6 +8,7 @@ client-side rendered and has no discoverable free API.
 import json
 import logging
 import re
+from html import unescape
 from typing import List, Dict, Any, Optional
 
 from collectors.browser_scraper import BrowserScraper
@@ -35,6 +36,12 @@ def _parse_gpu_count(text: str):
         return 0
     value = float(match.group(1))
     return int(value) if value.is_integer() else round(value, 6)
+
+
+def _table_cell_text(raw_html: str) -> str:
+    text = re.sub(r"<sup[^>]*>.*?</sup>", "", raw_html or "", flags=re.I | re.S)
+    text = re.sub(r"<[^>]+>", "", text)
+    return re.sub(r"\s+", " ", unescape(text)).strip()
 
 
 def _normalized_gpu_candidate(raw: str) -> str:
@@ -169,10 +176,12 @@ class CoreWeaveBrowserCollector(BrowserScraper):
             gpu_raw = re.sub(r"\s+", " ", match.group(1)).strip()
             window = html[match.end():match.end() + 1400]
             cells = [
-                re.sub(r"\s+", " ", cell).strip()
-                for cell in re.findall(r'<div class="table-v2-cell(?: [^"]*)?">\s*<div>([^<]*)</div>', window)
+                _table_cell_text(cell)
+                for cell in re.findall(r'<div class="table-v2-cell(?: [^"]*)?">\s*<div>(.*?)</div>', window, re.S)
             ]
-            if len(cells) < 2:
+            if len(cells) < 6:
+                continue
+            if "$" in cells[0] or cells[0].strip().upper() in {"", "N/A"}:
                 continue
 
             gpu_count = _parse_gpu_count(cells[0])

@@ -293,6 +293,20 @@ class CollectTests(unittest.TestCase):
 
         self.assertFalse(collect._should_keep_existing_row(row))
 
+    def test_should_keep_existing_row_drops_coreweave_price_only_duplicate(self):
+        row = self._row(
+            source="coreweave",
+            provider="coreweave",
+            instance_type="HGX H100",
+            gpu_name="H100",
+            gpu_memory_gb="6",
+            gpu_count="19.71",
+            price_per_hour="19.71",
+            price_per_gpu_hour="1.0",
+        )
+
+        self.assertFalse(collect._should_keep_existing_row(row))
+
     def test_should_keep_existing_row_drops_numeric_gpu_name(self):
         row = self._row(
             source="lightningai",
