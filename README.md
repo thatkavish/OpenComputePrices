@@ -197,7 +197,7 @@ python unify.py --stats
 python summary.py
 
 # Run local checks
-PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall collect.py collectors release_data.py row_utils.py schema.py storage.py summary.py unify.py validation.py
+PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall collect.py collector_registry.py collectors release_data.py row_utils.py schema.py storage.py summary.py unify.py validation.py
 python -m unittest discover -s tests -v
 ```
 
@@ -250,6 +250,7 @@ Data is stored in [GitHub Releases](../../releases/tag/latest-data) — the work
 ```
 OpenComputePrices/
 ├── collect.py                  # Main entry point — runs collectors, builds unified DBs
+├── collector_registry.py       # Declarative active/inactive collector registry
 ├── unify.py                    # Merges per-source CSVs into deduplicated master DBs
 ├── schema.py                   # Standardized 33-column schema & GPU name normalization
 ├── storage.py                  # CSV append/tail/baseline helpers for data finalization

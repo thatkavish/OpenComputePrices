@@ -13,6 +13,22 @@ class BaseCollectorTests(unittest.TestCase):
         self.assertTrue(BaseCollector.should_save_row({"pricing_type": "inference", "gpu_name": ""}))
         self.assertTrue(BaseCollector.should_save_row({"pricing_type": "on_demand", "gpu_name": "Inferentia"}))
 
+    def test_make_gpu_row_derives_per_gpu_prices(self):
+        collector = BaseCollector()
+        row = collector.make_gpu_row(
+            provider="coreweave",
+            instance_type="HGX H100",
+            gpu_name="H100",
+            gpu_count=8,
+            pricing_type="on_demand",
+            price_per_hour=49.24,
+            upfront_price=800,
+        )
+
+        self.assertEqual(row["price_per_gpu_hour"], 6.155)
+        self.assertEqual(row["upfront_price_per_gpu"], 100.0)
+        self.assertTrue(row["available"])
+
     def test_migrate_csv_to_current_schema_preserves_current_rows_under_stale_header(self):
         old_columns = [col for col in COLUMNS if col not in {"upfront_price", "upfront_price_per_gpu"}]
         current_row = {col: "" for col in COLUMNS}

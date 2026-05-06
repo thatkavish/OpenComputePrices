@@ -19,6 +19,7 @@ from schema import (
     normalize_provider,
     normalize_region,
 )
+from row_utils import parse_float
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +132,44 @@ class BaseCollector:
         )
         row["geo_group"] = infer_geo_group(row["region"], row["country"])
         return row
+
+    @staticmethod
+    def _per_gpu_amount(total, gpu_count):
+        if total in (None, ""):
+            return ""
+        gpu_count = parse_float(gpu_count)
+        if gpu_count <= 0:
+            return total
+        try:
+            return round(float(total) / gpu_count, 6)
+        except (TypeError, ValueError):
+            return total
+
+    def make_gpu_row(
+        self,
+        *,
+        gpu_count=1,
+        price_per_hour=0,
+        price_per_gpu_hour=None,
+        upfront_price="",
+        upfront_price_per_gpu=None,
+        available=True,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Create a GPU pricing row and derive per-GPU prices when omitted."""
+        if price_per_gpu_hour is None:
+            price_per_gpu_hour = self._per_gpu_amount(price_per_hour, gpu_count)
+        if upfront_price_per_gpu is None:
+            upfront_price_per_gpu = self._per_gpu_amount(upfront_price, gpu_count)
+        return self.make_row(
+            gpu_count=gpu_count,
+            price_per_hour=price_per_hour,
+            price_per_gpu_hour=price_per_gpu_hour,
+            upfront_price=upfront_price,
+            upfront_price_per_gpu=upfront_price_per_gpu,
+            available=available,
+            **kwargs,
+        )
 
     @staticmethod
     def should_save_row(row: Dict[str, Any]) -> bool:

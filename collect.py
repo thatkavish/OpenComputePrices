@@ -80,46 +80,14 @@ def _load_dotenv():
 
 _load_dotenv()
 
-from collectors.aws import AWSCollector
-from collectors.azure import AzureCollector
-from collectors.oracle import OracleCollector
-from collectors.shadeform import ShadeformCollector
-from collectors.runpod import RunPodCollector
-from collectors.vastai import VastAICollector
-from collectors.tensordock import TensorDockCollector
-from collectors.lambda_cloud import LambdaCollector
-from collectors.gcp import GCPCollector
-from collectors.skypilot import SkyPilotCollector
-from collectors.getdeploying import GetDeployingCollector
-from collectors.jarvislabs import JarvisLabsCollector
-from collectors.thundercompute import ThunderComputeCollector
-from collectors.crusoe import CrusoeCollector
-from collectors.novita import NovitaCollector
-from collectors.akash import AkashCollector
-from collectors.cudo import CudoCollector
-from collectors.vultr import VultrCollector, infer_effective_gpu_count
-from collectors.paperspace import PaperspaceCollector
-from collectors.primeintellect import PrimeIntellectCollector
-from collectors.datacrunch import DataCrunchCollector
-from collectors.deepinfra import DeepInfraCollector
-from collectors.linode import LinodeCollector
-from collectors.latitude import LatitudeCollector
-from collectors.massedcompute import MassedComputeCollector
-from collectors.e2e import E2ECollector
-from collectors.voltagepark import VoltageParkCollector
-from collectors.denvr import DenvrCollector
-from collectors.cloreai import CloreAICollector
-from collectors.browser_providers import (
-    CoreWeaveBrowserCollector,
-    TogetherBrowserCollector,
-    HyperstackBrowserCollector,
-    GcoreBrowserCollector,
-    GMICloudBrowserCollector,
-    LightningAIBrowserCollector,
-    SaladBrowserCollector,
-    AethirBrowserCollector,
-    QubridBrowserCollector,
+from collector_registry import (
+    API_KEY_COLLECTORS,
+    BROWSER_COLLECTORS,
+    COLLECTOR_TYPES,
+    COLLECTORS,
+    NO_AUTH_COLLECTORS,
 )
+from collectors.vultr import infer_effective_gpu_count
 
 logging.basicConfig(
     level=logging.INFO,
@@ -127,68 +95,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
-
-# Registry of all collectors
-COLLECTORS = {
-    # --- No auth required (APIs) ---
-    "aws": AWSCollector,
-    "azure": AzureCollector,
-    "oracle": OracleCollector,
-    "tensordock": TensorDockCollector,
-    "skypilot": SkyPilotCollector,
-    # --- No auth required (web scrapers) ---
-    "getdeploying": GetDeployingCollector,
-    "jarvislabs": JarvisLabsCollector,
-    "thundercompute": ThunderComputeCollector,
-    "crusoe": CrusoeCollector,
-    "novita": NovitaCollector,
-    "akash": AkashCollector,
-    "cudo": CudoCollector,
-    "vultr": VultrCollector,
-    "paperspace": PaperspaceCollector,
-    "deepinfra": DeepInfraCollector,
-    "linode": LinodeCollector,
-    "latitude": LatitudeCollector,
-    "massedcompute": MassedComputeCollector,
-    "e2e": E2ECollector,
-    "voltagepark": VoltageParkCollector,
-    "denvr": DenvrCollector,
-    "cloreai": CloreAICollector,
-    # --- No auth required (Playwright browser scrapers) ---
-    "coreweave": CoreWeaveBrowserCollector,
-    "together": TogetherBrowserCollector,
-    "hyperstack": HyperstackBrowserCollector,
-    "gcore": GcoreBrowserCollector,
-    "gmicloud": GMICloudBrowserCollector,
-    "lightningai": LightningAIBrowserCollector,
-    "salad": SaladBrowserCollector,
-    "aethir": AethirBrowserCollector,
-    "qubrid": QubridBrowserCollector,
-    # --- Free API key required ---
-    "shadeform": ShadeformCollector,
-    "runpod": RunPodCollector,
-    "vastai": VastAICollector,
-    "lambda": LambdaCollector,
-    "gcp": GCPCollector,
-    "primeintellect": PrimeIntellectCollector,
-    "datacrunch": DataCrunchCollector,
-}
-
-NO_AUTH_COLLECTORS = [
-    "aws", "azure", "oracle", "tensordock", "skypilot",
-    "getdeploying", "jarvislabs", "thundercompute", "crusoe", "novita",
-    "akash", "cudo", "vultr", "paperspace",
-    "deepinfra", "linode", "latitude", "massedcompute", "e2e",
-    "voltagepark", "denvr", "cloreai",
-]
-BROWSER_COLLECTORS = [
-    "coreweave", "together", "hyperstack", "gcore",
-    "gmicloud", "lightningai", "salad", "aethir", "qubrid",
-]
-API_KEY_COLLECTORS = [
-    "shadeform", "runpod", "vastai", "lambda", "gcp",
-    "primeintellect", "datacrunch",
-]
 
 _CURRENCY_CODES = {"USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CNY", "INR", "KRW"}
 _PRICE_UNITS = {"hour", "hr", "gpu_hour", "gpu-hour", "second", "month", "token"}
@@ -860,7 +766,7 @@ def main():
             else:
                 auth = "None"
             env = c.api_key_env_var or "-"
-            ctype = "browser" if name in BROWSER_COLLECTORS else "scraper" if name in NO_AUTH_COLLECTORS else "api-key"
+            ctype = COLLECTOR_TYPES.get(name, "unknown")
             print(f"{name:<17} {ctype:<12} {auth:<10} {env}")
         return
 

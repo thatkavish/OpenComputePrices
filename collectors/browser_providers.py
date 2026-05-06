@@ -157,13 +157,13 @@ class CoreWeaveBrowserCollector(BrowserScraper):
                 specs_variant = specs.get("variant", "")
 
             gpu_count = 1
-            rows.append(self.make_row(
+            rows.append(self.make_gpu_row(
                 provider="coreweave", instance_type=gpu_raw,
                 gpu_name=normalize_gpu_name(gn),
                 gpu_variant=specs_variant,
                 gpu_memory_gb=specs.get("mem", 0),
                 gpu_count=gpu_count, pricing_type="on_demand",
-                price_per_hour=price, price_per_gpu_hour=round(price / gpu_count, 6),
+                price_per_hour=price,
                 available=True,
             ))
 
@@ -226,7 +226,7 @@ class CoreWeaveBrowserCollector(BrowserScraper):
             gpu_memory_gb = (
                 int(float(memory_match.group(1))) if memory_match else specs.get("mem", 0)
             )
-            rows.append(self.make_row(
+            rows.append(self.make_gpu_row(
                 provider="coreweave",
                 instance_type=gpu_raw,
                 gpu_name=normalize_gpu_name(gn),
@@ -235,7 +235,6 @@ class CoreWeaveBrowserCollector(BrowserScraper):
                 gpu_count=gpu_count,
                 pricing_type="on_demand",
                 price_per_hour=price,
-                price_per_gpu_hour=round(price / gpu_count, 6),
                 available=True,
             ))
 
@@ -764,7 +763,7 @@ class QubridBrowserCollector(BrowserScraper):
                 continue
             cells = [cell.strip() for cell in lines[i + 1].split("\t") if cell.strip()]
             gpu_count = int(gpu_match.group(3))
-            rows.append(self.make_row(
+            rows.append(self.make_gpu_row(
                 provider="qubrid",
                 instance_type=line,
                 gpu_name=normalize_gpu_name(gpu_match.group(1)),
@@ -775,7 +774,6 @@ class QubridBrowserCollector(BrowserScraper):
                 storage_desc=cells[2] if len(cells) > 2 else "",
                 pricing_type="on_demand",
                 price_per_hour=price,
-                price_per_gpu_hour=round(price / gpu_count, 6),
                 currency=currency or "USD",
                 available=True,
             ))

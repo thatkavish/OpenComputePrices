@@ -8,6 +8,7 @@ import unittest
 from contextlib import redirect_stdout
 from unittest import mock
 
+import collector_registry
 import collect
 from schema import COLUMNS
 
@@ -86,6 +87,14 @@ class CollectTests(unittest.TestCase):
     def test_openrouter_is_not_an_active_collector(self):
         self.assertNotIn("openrouter", collect.COLLECTORS)
         self.assertNotIn("openrouter", collect.NO_AUTH_COLLECTORS)
+        self.assertEqual(collector_registry.COLLECTOR_TYPES["openrouter"], "api")
+
+    def test_collector_registry_groupings_cover_active_collectors(self):
+        spec_names = [spec.name for spec in collector_registry.COLLECTOR_SPECS]
+        self.assertEqual(len(spec_names), len(set(spec_names)))
+
+        grouped = set(collect.NO_AUTH_COLLECTORS) | set(collect.BROWSER_COLLECTORS) | set(collect.API_KEY_COLLECTORS)
+        self.assertEqual(set(collect.COLLECTORS), grouped)
 
     def test_main_exits_non_zero_when_all_collectors_fail(self):
         with mock.patch.dict(collect.COLLECTORS, {"boom": _BoomCollector}, clear=True), \

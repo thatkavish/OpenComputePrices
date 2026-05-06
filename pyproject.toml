@@ -29,6 +29,7 @@ dependencies = []
 [tool.setuptools]
 py-modules = [
   "collect",
+  "collector_registry",
   "release_data",
   "row_utils",
   "schema",

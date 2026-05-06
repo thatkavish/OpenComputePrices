@@ -26,6 +26,7 @@ jobs:
         run: |
           PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall \
             collect.py \
+            collector_registry.py \
             collectors \
             release_data.py \
             row_utils.py \
