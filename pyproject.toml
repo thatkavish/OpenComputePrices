@@ -30,9 +30,12 @@ dependencies = []
 py-modules = [
   "collect",
   "release_data",
+  "row_utils",
   "schema",
+  "storage",
   "summary",
   "unify",
+  "validation",
 ]
 
 [tool.setuptools.packages.find]

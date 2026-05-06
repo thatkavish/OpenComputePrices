@@ -197,7 +197,7 @@ python unify.py --stats
 python summary.py
 
 # Run local checks
-PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall collect.py collectors release_data.py schema.py summary.py unify.py
+PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall collect.py collectors release_data.py row_utils.py schema.py storage.py summary.py unify.py validation.py
 python -m unittest discover -s tests -v
 ```
 
@@ -252,6 +252,9 @@ OpenComputePrices/
 ├── collect.py                  # Main entry point — runs collectors, builds unified DBs
 ├── unify.py                    # Merges per-source CSVs into deduplicated master DBs
 ├── schema.py                   # Standardized 33-column schema & GPU name normalization
+├── storage.py                  # CSV append/tail/baseline helpers for data finalization
+├── validation.py               # Persisted-row keep/drop quality checks
+├── row_utils.py                # Shared row numeric/JSON helpers
 ├── summary.py                  # Quick dataset inspection tool
 ├── requirements.txt            # Playwright (optional for browser collectors)
 ├── collectors/

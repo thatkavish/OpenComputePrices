@@ -10,8 +10,6 @@ Usage:
 
 import argparse
 import csv
-import io
-import json
 import logging
 import os
 import re
@@ -28,6 +26,33 @@ from schema import (
     normalize_gpu_name,
     normalize_provider,
     normalize_region,
+)
+from row_utils import (
+    dump_raw_extra_dict as _dump_raw_extra_dict,
+    format_float as _format_float,
+    parse_float as _parse_float,
+    parse_raw_extra_dict as _parse_raw_extra_dict,
+)
+from storage import (
+    BASELINE_STATE_FILENAME,
+    append_rows as _append_rows,
+    baseline_state_path as _baseline_state_path,
+    cleanup_baseline_state as _cleanup_baseline_state_impl,
+    dedupe_rows as _dedupe_rows,
+    first_snapshot_date as _first_snapshot_date,
+    load_baseline_state as _load_baseline_state_impl,
+    load_source_rows_for_dates as _load_source_rows_for_dates,
+    read_appended_rows as _read_appended_rows,
+    replace_appended_rows as _replace_appended_rows,
+    rewrite_csv_excluding_dates_and_cutoff as _rewrite_csv_excluding_dates_and_cutoff,
+    row_key as _row_key,
+)
+# Preserve collect.py's private helper names while moving implementations out.
+from validation import (
+    is_implausible_akash_outlier as _is_implausible_akash_outlier,
+    is_malformed_coreweave_price_only_row as _is_malformed_coreweave_price_only_row,
+    is_noncanonical_akash_price_tier as _is_noncanonical_akash_price_tier,
+    should_keep_existing_row as _should_keep_existing_row,
 )
 
 
@@ -165,7 +190,6 @@ API_KEY_COLLECTORS = [
     "primeintellect", "datacrunch",
 ]
 
-BASELINE_STATE_FILENAME = "_baseline_state.json"
 _CURRENCY_CODES = {"USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CNY", "INR", "KRW"}
 _PRICE_UNITS = {"hour", "hr", "gpu_hour", "gpu-hour", "second", "month", "token"}
 _BOOLEANISH = {"true", "false", "1", "0", ""}
@@ -223,107 +247,12 @@ def resolve_collector_names(args) -> list[str]:
     return [n for n in names if n not in args.skip]
 
 
-def _baseline_state_path(data_dir: str) -> str:
-    return os.path.join(data_dir, BASELINE_STATE_FILENAME)
-
-
 def _load_baseline_state(data_dir: str) -> dict:
-    path = _baseline_state_path(data_dir)
-    if not os.path.isfile(path):
-        return {}
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        logger.warning(f"Failed to load baseline state from {path}: {e}")
-        return {}
+    return _load_baseline_state_impl(data_dir, logger=logger)
 
 
 def _cleanup_baseline_state(data_dir: str) -> None:
-    path = _baseline_state_path(data_dir)
-    if os.path.isfile(path):
-        try:
-            os.remove(path)
-        except OSError:
-            logger.warning(f"Failed to remove baseline state file: {path}")
-
-
-def _row_key(row: dict) -> tuple:
-    return tuple(row.get(col, "") for col in COLUMNS)
-
-
-def _dedupe_rows(rows: list[dict]) -> list[dict]:
-    seen = set()
-    unique = []
-    for row in rows:
-        key = _row_key(row)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(row)
-    return unique
-
-
-def _read_appended_rows(path: str, baseline_size: int) -> list[dict]:
-    if not os.path.isfile(path):
-        return []
-
-    current_size = os.path.getsize(path)
-    if current_size <= baseline_size:
-        return []
-
-    with open(path, "rb") as f:
-        f.seek(baseline_size)
-        chunk = f.read()
-
-    if not chunk.strip():
-        return []
-
-    text = chunk.decode("utf-8")
-    if baseline_size == 0:
-        reader = csv.DictReader(io.StringIO(text))
-    else:
-        reader = csv.DictReader(io.StringIO(text), fieldnames=COLUMNS)
-    return [row for row in reader if any(str(v).strip() for v in row.values())]
-
-
-def _replace_appended_rows(path: str, baseline_size: int, rows: list[dict]) -> None:
-    fd, tmp_path = tempfile.mkstemp(prefix="collect_tail_", suffix=".csv", dir=os.path.dirname(path) or None)
-    os.close(fd)
-    try:
-        if baseline_size > 0 and os.path.isfile(path):
-            with open(path, "rb") as src, open(tmp_path, "wb") as dst:
-                dst.write(src.read(baseline_size))
-            mode = "a"
-            write_header = False
-        else:
-            mode = "w"
-            write_header = True
-
-        with open(tmp_path, mode, newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
-            if write_header:
-                writer.writeheader()
-            for row in rows:
-                writer.writerow(row)
-
-        os.replace(tmp_path, path)
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-
-
-def _append_rows(path: str, rows: list[dict]) -> None:
-    if not rows:
-        return
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    file_exists = os.path.isfile(path) and os.path.getsize(path) > 0
-    with open(path, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
-        if not file_exists:
-            writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
+    _cleanup_baseline_state_impl(data_dir, logger=logger)
 
 
 def _repair_shifted_tail_row(row: dict) -> bool:
@@ -401,31 +330,6 @@ def _normalize_existing_row(row: dict) -> bool:
     if _repair_vultr_existing_row(row):
         changed = True
     return changed
-
-
-def _parse_float(raw) -> float:
-    try:
-        return float(raw or 0)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _format_float(value: float) -> str:
-    return f"{round(value, 6):.6f}".rstrip("0").rstrip(".") or "0"
-
-
-def _parse_raw_extra_dict(raw_extra: str) -> dict:
-    try:
-        parsed = json.loads(raw_extra or "")
-    except (TypeError, ValueError):
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
-
-
-def _dump_raw_extra_dict(raw_extra: dict, fallback: str = "") -> str:
-    if raw_extra:
-        return json.dumps(raw_extra, separators=(",", ":"), default=str)
-    return fallback
 
 
 def _repair_aws_existing_row(row: dict) -> bool:
@@ -653,62 +557,6 @@ def _repair_vultr_existing_row(row: dict) -> bool:
     return changed
 
 
-def _should_keep_existing_row(row: dict) -> bool:
-    if _is_implausible_akash_outlier(row):
-        return False
-    if _is_noncanonical_akash_price_tier(row):
-        return False
-    if _is_malformed_coreweave_price_only_row(row):
-        return False
-    if str(row.get("pricing_type", "")).lower() == "inference":
-        return True
-    gpu_name = str(row.get("gpu_name", "")).strip()
-    if not gpu_name:
-        return False
-    return re.fullmatch(r"\d+(?:\.\d+)?", gpu_name) is None
-
-
-def _is_malformed_coreweave_price_only_row(row: dict) -> bool:
-    if row.get("source") != "coreweave" and row.get("provider") != "coreweave":
-        return False
-    if str(row.get("pricing_type", "")).lower() != "on_demand":
-        return False
-
-    gpu_count = _parse_float(row.get("gpu_count"))
-    price_per_hour = _parse_float(row.get("price_per_hour"))
-    price_per_gpu_hour = _parse_float(row.get("price_per_gpu_hour"))
-    if gpu_count <= 0 or price_per_hour <= 0:
-        return False
-    if abs(gpu_count - round(gpu_count)) <= 1e-6:
-        return False
-
-    return abs(gpu_count - price_per_hour) <= 1e-6 and abs(price_per_gpu_hour - 1.0) <= 1e-6
-
-
-def _is_implausible_akash_outlier(row: dict) -> bool:
-    if row.get("source") != "akash" and row.get("provider") != "akash":
-        return False
-    if row.get("gpu_name") != "GTX 1070 Ti":
-        return False
-    return _parse_float(row.get("price_per_gpu_hour")) > 20
-
-
-def _is_noncanonical_akash_price_tier(row: dict) -> bool:
-    if row.get("source") != "akash" and row.get("provider") != "akash":
-        return False
-
-    raw_extra = _parse_raw_extra_dict(row.get("raw_extra", ""))
-    price_metric = str(raw_extra.get("price_metric", "") or raw_extra.get("price_tier", "")).strip()
-    if price_metric:
-        return price_metric not in {"weightedAverage", ""}
-
-    instance_type = str(row.get("instance_type", "")).strip()
-    match = re.search(r"_(min|max|avg|med|weightedAverage)$", instance_type)
-    if not match:
-        return False
-    return match.group(1) != "weightedAverage"
-
-
 def repair_schema_drift_csv(path: str) -> tuple[int, int, int]:
     """Repair shifted tail columns and canonicalize legacy aliases in one CSV."""
     if not os.path.isfile(path) or os.path.getsize(path) == 0:
@@ -770,34 +618,6 @@ def repair_schema_drift_in_data_dir(data_dir: str) -> int:
     return total_shifted + total_normalized + total_dropped
 
 
-def _load_source_rows_for_dates(data_dir: str, snapshot_dates: set[str]) -> list[dict]:
-    rows = []
-    if not snapshot_dates:
-        return rows
-
-    for fname in sorted(os.listdir(data_dir)):
-        if not fname.endswith(".csv") or fname.startswith("_"):
-            continue
-        path = os.path.join(data_dir, fname)
-        with open(path, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                if row.get("snapshot_date", "") in snapshot_dates:
-                    row["_source_file"] = fname.replace(".csv", "")
-                    rows.append(row)
-    return rows
-
-
-def _first_snapshot_date(path: str) -> str:
-    if not os.path.isfile(path) or os.path.getsize(path) == 0:
-        return ""
-    with open(path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            return row.get("snapshot_date", "")
-    return ""
-
-
 def _prune_csv_by_cutoff(path: str, cutoff: str, collect_expired: bool = False) -> tuple[int, list[dict], set[str]]:
     if not os.path.isfile(path) or os.path.getsize(path) == 0:
         return 0, [], set()
@@ -831,32 +651,6 @@ def _prune_csv_by_cutoff(path: str, cutoff: str, collect_expired: bool = False) 
 
         os.replace(tmp_path, path)
         return removed, expired_rows, removed_dates
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-
-
-def _rewrite_csv_excluding_dates_and_cutoff(path: str, cutoff: str, snapshot_dates: set[str]) -> int:
-    if not os.path.isfile(path) or os.path.getsize(path) == 0:
-        return 0
-
-    fd, tmp_path = tempfile.mkstemp(prefix="collect_replace_", suffix=".csv", dir=os.path.dirname(path) or None)
-    os.close(fd)
-    removed = 0
-    try:
-        with open(path, newline="", encoding="utf-8") as src, open(tmp_path, "w", newline="", encoding="utf-8") as dst:
-            reader = csv.DictReader(src)
-            writer = csv.DictWriter(dst, fieldnames=COLUMNS, extrasaction="ignore")
-            writer.writeheader()
-            for row in reader:
-                snapshot_date = row.get("snapshot_date", "")
-                if snapshot_date < cutoff or snapshot_date in snapshot_dates:
-                    removed += 1
-                    continue
-                writer.writerow(row)
-
-        os.replace(tmp_path, path)
-        return removed
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
