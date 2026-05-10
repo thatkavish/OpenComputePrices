@@ -96,11 +96,16 @@ jobs:
             python collect.py --no-browser --skip-prune --no-unify
           fi
 
+      - name: Package API data artifact
+        run: |
+          tar czf /tmp/data-api.tar.gz -C data .
+          ls -lh /tmp/data-api.tar.gz
+
       - name: Upload intermediate data artifact
         uses: actions/upload-artifact@v4
         with:
           name: data-api
-          path: data
+          path: /tmp/data-api.tar.gz
           if-no-files-found: error
           compression-level: 0
 
@@ -126,7 +131,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: data-api
-          path: data
+          path: /tmp/data-api-artifact
+
+      - name: Extract API data artifact
+        run: |
+          rm -rf data
+          mkdir -p data
+          python release_data.py extract /tmp/data-api-artifact/data-api.tar.gz data
 
       - name: Install dependencies
         run: |
@@ -143,11 +154,16 @@ jobs:
             python collect.py --browser --skip-prune --no-unify
           fi
 
+      - name: Package browser data artifact
+        run: |
+          tar czf /tmp/data-browser.tar.gz -C data .
+          ls -lh /tmp/data-browser.tar.gz
+
       - name: Upload intermediate browser data artifact
         uses: actions/upload-artifact@v4
         with:
           name: data-browser
-          path: data
+          path: /tmp/data-browser.tar.gz
           if-no-files-found: error
           compression-level: 0
 
@@ -175,17 +191,63 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: data-api
-          path: data
+          path: /tmp/data-api-artifact
+
+      - name: Extract API data artifact
+        if: needs.collect-browser.result != 'success'
+        run: |
+          rm -rf data
+          mkdir -p data
+          python release_data.py extract /tmp/data-api-artifact/data-api.tar.gz data
 
       - name: Download browser data artifact
         if: needs.collect-browser.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: data-browser
-          path: data
+          path: /tmp/data-browser-artifact
+
+      - name: Extract browser data artifact
+        if: needs.collect-browser.result == 'success'
+        run: |
+          rm -rf data
+          mkdir -p data
+          python release_data.py extract /tmp/data-browser-artifact/data-browser.tar.gz data
+
+      - name: Verify source data artifact
+        env:
+          COLLECT_SOURCES_CSV: ${{ github.event.inputs.sources }}
+        run: |
+          SOURCE_COUNT=$(find data -maxdepth 1 -type f -name '*.csv' ! -name '_*' | wc -l | tr -d ' ')
+          echo "Source CSV files: ${SOURCE_COUNT}"
+          MIN_SOURCE_COUNT=1
+          if [ -z "$COLLECT_SOURCES_CSV" ]; then
+            MIN_SOURCE_COUNT=20
+          fi
+          if [ "$SOURCE_COUNT" -lt "$MIN_SOURCE_COUNT" ]; then
+            echo "::error::Refusing to finalize: expected at least ${MIN_SOURCE_COUNT} source CSV files, found ${SOURCE_COUNT}"
+            find data -maxdepth 2 -type f | sort | head -100
+            exit 1
+          fi
 
       - name: Finalize data
         run: python collect.py --finalize-only
+
+      - name: Verify finalized data
+        env:
+          COLLECT_SOURCES_CSV: ${{ github.event.inputs.sources }}
+        run: |
+          SOURCE_COUNT=$(find data -maxdepth 1 -type f -name '*.csv' ! -name '_*' | wc -l | tr -d ' ')
+          echo "Finalized source CSV files: ${SOURCE_COUNT}"
+          MIN_SOURCE_COUNT=1
+          if [ -z "$COLLECT_SOURCES_CSV" ]; then
+            MIN_SOURCE_COUNT=20
+          fi
+          if [ "$SOURCE_COUNT" -lt "$MIN_SOURCE_COUNT" ]; then
+            echo "::error::Refusing to upload release: expected at least ${MIN_SOURCE_COUNT} source CSV files, found ${SOURCE_COUNT}"
+            find data -maxdepth 2 -type f | sort | head -100
+            exit 1
+          fi
 
       - name: Upload data to release
         env:
