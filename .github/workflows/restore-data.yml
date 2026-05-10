@@ -1,0 +1,140 @@
+name: Restore GPU Pricing Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Workflow run containing the healthy data-browser artifact"
+        required: true
+        default: "25533515576"
+      restore_timestamp:
+        description: "UTC timestamp to use for the retention cutoff"
+        required: true
+        default: "2026-05-08T03:02:00Z"
+
+permissions:
+  actions: read
+  contents: write
+
+env:
+  DATA_TAG: latest-data
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download healthy browser data artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: data-browser
+          run-id: ${{ inputs.run_id }}
+          path: data
+          github-token: ${{ github.token }}
+
+      - name: Verify downloaded source data
+        run: |
+          if [ -d data/data ] && ! find data -maxdepth 1 -type f -name '*.csv' | grep -q .; then
+            shopt -s dotglob
+            mv data/data/* data/
+            rmdir data/data
+          fi
+
+          SOURCE_COUNT=$(find data -maxdepth 1 -type f -name '*.csv' ! -name '_*' | wc -l | tr -d ' ')
+          echo "Source CSV files: ${SOURCE_COUNT}"
+          if [ "$SOURCE_COUNT" -lt 20 ]; then
+            echo "::error::Refusing to restore: expected at least 20 source CSV files, found ${SOURCE_COUNT}"
+            find data -maxdepth 2 -type f | sort | head -100
+            exit 1
+          fi
+
+      - name: Finalize restored data
+        env:
+          RESTORE_TIMESTAMP: ${{ inputs.restore_timestamp }}
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime as real_datetime, timezone
+
+          import collect
+
+          restore_ts = os.environ["RESTORE_TIMESTAMP"].replace("Z", "+00:00")
+          fixed_now = real_datetime.fromisoformat(restore_ts)
+          if fixed_now.tzinfo is None:
+              fixed_now = fixed_now.replace(tzinfo=timezone.utc)
+
+          class FixedDatetime(real_datetime):
+              @classmethod
+              def now(cls, tz=None):
+                  if tz is None:
+                      return fixed_now.astimezone(timezone.utc).replace(tzinfo=None)
+                  return fixed_now.astimezone(tz)
+
+          collect.datetime = FixedDatetime
+          if not collect.finalize_existing_data():
+              raise SystemExit("restored data finalization did not run")
+          PY
+
+      - name: Verify finalized restore
+        run: |
+          SOURCE_COUNT=$(find data -maxdepth 1 -type f -name '*.csv' ! -name '_*' | wc -l | tr -d ' ')
+          echo "Finalized source CSV files: ${SOURCE_COUNT}"
+          if [ "$SOURCE_COUNT" -lt 20 ]; then
+            echo "::error::Refusing to upload restore: expected at least 20 source CSV files, found ${SOURCE_COUNT}"
+            find data -maxdepth 2 -type f | sort | head -100
+            exit 1
+          fi
+
+      - name: Upload restored data to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESTORE_RUN_ID: ${{ inputs.run_id }}
+          RESTORE_TIMESTAMP: ${{ inputs.restore_timestamp }}
+        run: |
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          if [ -f data/_expired.csv ] && [ -s data/_expired.csv ]; then
+            mkdir -p /tmp/expired-archives /tmp/existing-archives
+            python release_data.py split-expired data/_expired.csv /tmp/expired-archives
+            for ARCHIVE in /tmp/expired-archives/archive_*.csv.gz; do
+              [ -e "$ARCHIVE" ] || continue
+              BASENAME=$(basename "$ARCHIVE")
+              EXISTING="/tmp/existing-archives/${BASENAME}"
+              if gh release download "$DATA_TAG" -p "$BASENAME" -D /tmp/existing-archives 2>/dev/null; then
+                python release_data.py merge-archive "$EXISTING" "$ARCHIVE" "$ARCHIVE"
+              fi
+              ARCH_SIZE=$(du -h "$ARCHIVE" | cut -f1)
+              echo "Uploading expired archive: ${BASENAME} (${ARCH_SIZE})"
+              gh release upload "$DATA_TAG" "$ARCHIVE" --clobber
+            done
+            rm data/_expired.csv
+          fi
+
+          ROW_COUNT=$(python - <<'PY'
+          import csv
+          import glob
+
+          total = 0
+          for path in glob.glob("data/*.csv"):
+              with open(path, newline="", encoding="utf-8") as f:
+                  total += sum(1 for _ in csv.DictReader(f))
+          print(total)
+          PY
+          )
+
+          tar czf /tmp/data.tar.gz -C data .
+          SIZE=$(du -h /tmp/data.tar.gz | cut -f1)
+          echo "Restored data archive: ${SIZE} (${ROW_COUNT} rows)"
+          TITLE="GPU Pricing Data — restored $(date -u '+%Y-%m-%d %H:%M UTC')"
+          NOTES="Restored from workflow run ${RESTORE_RUN_ID} artifact at ${RESTORE_TIMESTAMP}; uploaded ${DATE} — ${ROW_COUNT} rows"
+          gh release upload "$DATA_TAG" /tmp/data.tar.gz --clobber
+          gh release edit "$DATA_TAG" --title "${TITLE}" --notes "${NOTES}"
