@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      allow_fresh_start:
+        description: "Allow creating data.tar.gz from scratch if the release asset is missing"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -41,35 +46,36 @@ jobs:
       - name: Download existing data from release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ALLOW_FRESH_START: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_fresh_start }}
         run: |
           mkdir -p data
-          if gh release download "$DATA_TAG" -p 'data.tar.gz' -D /tmp/ 2>/dev/null; then
+          if gh release view "$DATA_TAG" >/dev/null 2>&1; then
+            if ! gh release download "$DATA_TAG" -p 'data.tar.gz' -D /tmp/; then
+              echo "::error::Release '$DATA_TAG' exists, but data.tar.gz could not be downloaded. Refusing to start fresh."
+              exit 1
+            fi
             python release_data.py extract /tmp/data.tar.gz data
             rm -f data/_latest_gpu_offers.csv
             echo "Downloaded existing data from release"
             ls -lh data/*.csv 2>/dev/null | wc -l | xargs -I{} echo "  {} CSV files"
+          elif [ "$ALLOW_FRESH_START" = "true" ]; then
+            echo "::warning::No '$DATA_TAG' release found; starting fresh because allow_fresh_start=true"
           else
-            echo "No existing release found — starting fresh"
+            echo "::error::No '$DATA_TAG' release found, or GitHub could not be reached. Refusing to start fresh without allow_fresh_start=true."
+            exit 1
           fi
 
       - name: Record baseline source offsets
+        run: python release_data.py record-baseline data
+
+      - name: Verify release baseline
+        env:
+          ALLOW_FRESH_START: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_fresh_start }}
+          MIN_ACTIVE_HISTORY_DAYS: 75
         run: |
-          python - <<'PY'
-          import json
-          import os
-
-          data_dir = "data"
-          state = {"sources": {}}
-          if os.path.isdir(data_dir):
-              for fname in sorted(os.listdir(data_dir)):
-                  if not fname.endswith(".csv") or fname.startswith("_"):
-                      continue
-                  path = os.path.join(data_dir, fname)
-                  state["sources"][fname] = {"size": os.path.getsize(path)}
-
-          with open(os.path.join(data_dir, "_baseline_state.json"), "w", encoding="utf-8") as f:
-              json.dump(state, f, separators=(",", ":"), sort_keys=True)
-          PY
+          if [ "$ALLOW_FRESH_START" != "true" ]; then
+            python release_data.py verify-baseline data --min-sources 20 --min-days "$MIN_ACTIVE_HISTORY_DAYS"
+          fi
 
       - name: Run API and scraper collectors
         env:
@@ -217,6 +223,8 @@ jobs:
       - name: Verify source data artifact
         env:
           COLLECT_SOURCES_CSV: ${{ github.event.inputs.sources }}
+          ALLOW_FRESH_START: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_fresh_start }}
+          MIN_ACTIVE_HISTORY_DAYS: 75
         run: |
           SOURCE_COUNT=$(find data -maxdepth 1 -type f -name '*.csv' ! -name '_*' | wc -l | tr -d ' ')
           echo "Source CSV files: ${SOURCE_COUNT}"
@@ -229,6 +237,9 @@ jobs:
             find data -maxdepth 2 -type f | sort | head -100
             exit 1
           fi
+          if [ "$ALLOW_FRESH_START" != "true" ]; then
+            python release_data.py verify-baseline data --min-sources 20 --min-days "$MIN_ACTIVE_HISTORY_DAYS"
+          fi
 
       - name: Finalize data
         run: python collect.py --finalize-only
@@ -236,6 +247,8 @@ jobs:
       - name: Verify finalized data
         env:
           COLLECT_SOURCES_CSV: ${{ github.event.inputs.sources }}
+          ALLOW_FRESH_START: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_fresh_start }}
+          MIN_ACTIVE_HISTORY_DAYS: 75
         run: |
           SOURCE_COUNT=$(find data -maxdepth 1 -type f -name '*.csv' ! -name '_*' | wc -l | tr -d ' ')
           echo "Finalized source CSV files: ${SOURCE_COUNT}"
@@ -247,6 +260,9 @@ jobs:
             echo "::error::Refusing to upload release: expected at least ${MIN_SOURCE_COUNT} source CSV files, found ${SOURCE_COUNT}"
             find data -maxdepth 2 -type f | sort | head -100
             exit 1
+          fi
+          if [ "$ALLOW_FRESH_START" != "true" ]; then
+            python release_data.py verify-active data --min-sources 20 --min-rows 1000000 --min-days "$MIN_ACTIVE_HISTORY_DAYS"
           fi
 
       - name: Upload data to release

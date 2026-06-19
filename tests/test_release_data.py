@@ -1,12 +1,20 @@
 import csv
 import gzip
 import io
+import json
 import os
 import tarfile
 import tempfile
 import unittest
 
-from release_data import merge_csv_gz_archives, safe_extract_tar_gz, write_monthly_archives
+from release_data import (
+    merge_csv_gz_archives,
+    safe_extract_tar_gz,
+    verify_active_source_data,
+    verify_baseline_state,
+    write_baseline_state,
+    write_monthly_archives,
+)
 
 
 class ReleaseDataTests(unittest.TestCase):
@@ -94,3 +102,46 @@ class ReleaseDataTests(unittest.TestCase):
             rows = self._read_gzip_csv(new_path)
             self.assertEqual(row_count, 3)
             self.assertEqual([row["snapshot_date"] for row in rows], ["2026-01-08", "2026-01-09", "2026-01-10"])
+
+    def test_write_baseline_state_records_source_dates_and_rows(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_csv(os.path.join(temp_dir, "aws.csv"), [
+                {"snapshot_date": "2026-03-01", "source": "aws", "provider": "aws", "price_per_hour": "1"},
+                {"snapshot_date": "2026-06-01", "source": "aws", "provider": "aws", "price_per_hour": "2"},
+            ])
+            self._write_csv(os.path.join(temp_dir, "_master.csv"), [
+                {"snapshot_date": "2026-01-01", "source": "aws", "provider": "aws", "price_per_hour": "9"},
+            ])
+
+            summary = write_baseline_state(temp_dir)
+
+            self.assertEqual(summary["source_count"], 1)
+            self.assertEqual(summary["rows"], 2)
+            with open(os.path.join(temp_dir, "_baseline_state.json"), encoding="utf-8") as f:
+                state = json.load(f)
+            self.assertEqual(state["sources"]["aws.csv"]["rows"], 2)
+            self.assertEqual(state["sources"]["aws.csv"]["min_date"], "2026-03-01")
+            self.assertEqual(state["sources"]["aws.csv"]["max_date"], "2026-06-01")
+
+    def test_verify_baseline_state_rejects_truncated_history(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_csv(os.path.join(temp_dir, "aws.csv"), [
+                {"snapshot_date": "2026-06-10", "source": "aws", "provider": "aws", "price_per_hour": "1"},
+                {"snapshot_date": "2026-06-18", "source": "aws", "provider": "aws", "price_per_hour": "2"},
+            ])
+            write_baseline_state(temp_dir)
+
+            with self.assertRaisesRegex(ValueError, "covers only 8 days"):
+                verify_baseline_state(temp_dir, min_sources=1, min_days=75)
+
+    def test_verify_active_source_data_accepts_wide_history(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_csv(os.path.join(temp_dir, "aws.csv"), [
+                {"snapshot_date": "2026-03-01", "source": "aws", "provider": "aws", "price_per_hour": "1"},
+                {"snapshot_date": "2026-06-18", "source": "aws", "provider": "aws", "price_per_hour": "2"},
+            ])
+
+            summary = verify_active_source_data(temp_dir, min_sources=1, min_rows=2, min_days=75)
+
+            self.assertEqual(summary["rows"], 2)
+            self.assertGreaterEqual(summary["span_days"], 75)
